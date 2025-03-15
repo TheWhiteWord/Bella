@@ -102,6 +102,37 @@ See [EXTENDED_FEATURES.md](EXTENDED_FEATURES.md) in the documentation.
 - "Inputs too long": Reduce context or clear existing context
 - "CUDA out of memory": Reduce batch size or context length
 
+### Project structure
+
+csm-multi/
+├── enhanced_voice_clone.py  (main implementation)
+├── generator.py            (core generation logic)
+├── models.py              (model architecture)
+├── watermarking.py        (audio watermarking)
+├── download_models.py     (model setup)
+├── requirements.txt       (dependencies)
+├── LICENSE
+├── README.md
+├── clone_files/     (source files for cloning main voice) (not visible due to .gitignore)
+|   ├── bella_edit.mp3         (voice audio reference)
+|   └── Bella_transcript.txt   (transcript reference)
+├── models/     (source files for cloning main voice) (not visible due to .gitignore)
+|   ├── models--kyutai--moshiko-pytorch-bf16/
+|   ├── models--meta-llama--Llama-3.2-1B/
+|   └── models--sesame--csm-1b/
+├── doc/                   (documenatation)
+|   ├── EXTENDED_FEATURES.md         (voice cloning documentation)
+|   ├── CLONING.md         (voice cloning documentation)
+|   └── DOCUMENATATION.md  (main doc)
+└── extended_features/     (additional features)
+    ├── example.py         (multi speakers example)
+    ├── multi_speaker.py   (multi speakes code)
+    ├── conversation.py    (multi speaker conversation)
+    ├── watermark.py       (watermark feature)
+    ├── diffe.py           (multispeaker related file)
+    ├── test_voice_clone.py  (old voice cloning test)
+    └── test_bella_clone.py  (old test for cloning the main voice)
+
 ## References
 - Original CSM Repository: [Sesame CSM](https://github.com/SesameAILabs/csm)
 - Voice Cloning Base: [CSM Voice Cloning](https://github.com/isaiahbjork/csm-voice-cloning)

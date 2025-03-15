@@ -49,6 +49,7 @@ The system includes optional audio watermarking capabilities:
 - Secure watermarking of generated audio
 - Watermark verification
 - Configurable watermark strength
+- requires dependency (silentcipher @ git+https://github.com/SesameAILabs/silentcipher@master)
 
 ## Project Structure
 ```
