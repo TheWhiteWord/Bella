@@ -1,6 +1,27 @@
 # CSM-Multi
 
-## Diffe
+A focused implementation of CSM-1B for creating a single-voice chat companion, with additional multi-speaker capabilities preserved for future development.
+
+## Primary Focus
+This project is primarily designed to create a chat companion with a consistent, high-quality cloned voice. While it includes multi-speaker capabilities from the original implementation, the main use case is single-voice interaction.
+
+For detailed documentation including both primary features and future possibilities, see `DOCUMENTATION.md`.
+
+## Core Features
+- Single voice cloning with persistent characteristics
+- Optimized for continuous conversation
+- Memory-efficient context management
+- High-quality voice reproduction
+
+## Commands
+* `$CLEAR$` - Clear the context. Essential for managing memory during long conversations.
+* `$SWAP$` - (Reserved for future multi-speaker implementation)
+* `$BACK$` - (Reserved for future multi-speaker implementation)
+
+## Extended Features
+> Note: These features are maintained but not part of the primary implementation.
+
+### Diffe
 **diffe.py** Modified script from issue [61](https://github.com/SesameAILabs/csm/issues/61) from the original Sesame repo. Thanks to [@asiff00](https://github.com/asiff00) for the original code, there is now a way to, while keeping the models loaded, enter multiple text prompts without waiting for a reload each time. I've also added multi speaker support using speaker offset text splitting. simply separate each speaker's text with `||` and add a number to the end of the text that will be used as the offset (else a default offset will be applied). It also included a simple reference audio input capability (needs to be mono, not stereo), not as sophisticated as [csm-voice-cloning](https://github.com/isaiahbjork/csm-voice-cloning) repo's voice-clone.py, of which I've also added a modification for. (Thanks to that repo's author for the original, most use instructions can be found there, but new things will be discussed here).
 
 The maximum amount of "multi-speakers" for now is 4, but this can be experimented with in the code. I've not yet come up with a better solution to ffmpeg concat argument increases per gen.\
@@ -11,32 +32,13 @@ Example input:
 
 The `||`s are the separators for different generations in one go (4 max) and the option `0` is the offset to the speaker, which defaults to +1 per `||`. In this case, the first speaker will speak, then the second, then the first again.
 
-## Voice-Clone
+### Voice-Clone
 
 Thanks to the efforts in this repo: [csm-voice-cloning](https://github.com/isaiahbjork/csm-voice-cloning) a "better than simple reference" voice cloning via Sesame exists. See voice `cloning.md` from the orignial repo from more. New features added are the same multispeaker functionality and commands from diffe.
 
 To use the 4096 (or other context sizes) rename `models.py` to `models.py.old` or some such and rename `models-cloning.py` to `models.py` and follow the instructions in the original csm-voice-cloning repo on how to change that and the `voice_clone.py` file for more context.
 
-## Commands usage
-Both scripts contain commands you can enter in the enter text prompt:
-
-* `$CLEAR$` clear the context. Useful if generations are getting weird or errors about the inputs being too long crop up.
-* `$SWAP$` Swap primary speakers (increments `spkr` by 1).
-* `$BACK$` Swap backwards on primary speakers (decrements `spkr` by 1).
-
-# CSM
-
-**2025/03/13** - We are releasing the 1B CSM variant. The checkpoint is [hosted on Hugging Face](https://huggingface.co/sesame/csm_1b).
-
----
-
-CSM (Conversational Speech Model) is a speech generation model from [Sesame](https://www.sesame.com) that generates RVQ audio codes from text and audio inputs. The model architecture employs a [Llama](https://www.llama.com/) backbone and a smaller audio decoder that produces [Mimi](https://huggingface.co/kyutai/mimi) audio codes.
-
-A fine-tuned variant of CSM powers the [interactive voice demo](https://www.sesame.com/voicedemo) shown in our [blog post](https://www.sesame.com/research/crossing_the_uncanny_valley_of_voice).
-
-A hosted [Hugging Face space](https://huggingface.co/spaces/sesame/csm-1b) is also available for testing audio generation.
-
-## Requirements
+## Prerequisites
 
 * A CUDA-compatible GPU
 * The code has been tested on CUDA 12.4 and 12.6, but it may also work on other versions
@@ -125,20 +127,6 @@ audio = generator.generate(
 
 torchaudio.save("audio.wav", audio.unsqueeze(0).cpu(), generator.sample_rate)
 ```
-
-## FAQ
-
-**Does this model come with any voices?**
-
-The model open-sourced here is a base generation model. It is capable of producing a variety of voices, but it has not been fine-tuned on any specific voice.
-
-**Can I converse with the model?**
-
-CSM is trained to be an audio generation model and not a general-purpose multimodal LLM. It cannot generate text. We suggest using a separate LLM for text generation.
-
-**Does it support other languages?**
-
-The model has some capacity for non-English languages due to data contamination in the training data, but it likely won't do well.
 
 ## Misuse and abuse ⚠️
 

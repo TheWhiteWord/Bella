@@ -10,7 +10,6 @@ from models import Model, ModelArgs
 from moshi.models import loaders
 from tokenizers.processors import TemplateProcessing
 from transformers import AutoTokenizer
-from watermarking import CSM_1B_GH_WATERMARK, load_watermarker, watermark
 
 # Configure local cache directory
 CACHE_DIR = os.path.join(os.path.dirname(__file__), "models")
@@ -87,8 +86,6 @@ class Generator:
             mimi = loaders.get_mimi(mimi_weight, device=device)
             mimi.set_num_codebooks(32)
         self._audio_tokenizer = mimi
-
-        self._watermarker = load_watermarker(device=device)
 
         self.sample_rate = mimi.sample_rate
         self.device = device
@@ -212,17 +209,7 @@ class Generator:
             del samples, stacked_samples
             torch.cuda.empty_cache()
 
-            # Apply watermark (required)
-            audio, wm_sample_rate = watermark(self._watermarker, audio, self.sample_rate, CSM_1B_GH_WATERMARK)
-            
-            # Simple resampling without additional filtering
-            audio = torchaudio.functional.resample(
-                audio, 
-                orig_freq=wm_sample_rate, 
-                new_freq=self.sample_rate
-            ).to(dtype=torch.float32)
-
-            # Just normalize with headroom, no compression
+            # Simple normalization with headroom, no compression
             max_val = torch.max(torch.abs(audio))
             if max_val > 0:
                 audio = (audio / max_val) * 0.95

@@ -63,13 +63,44 @@ def get_model_path():
     return None
 
 
+def process_text(text: str, generator, context_segments: list, output_dir: str, speaker_id: int = 0):
+    """Process input text and generate audio"""
+    try:
+        segments = [
+            Segment(
+                text=text,
+                audio=None,
+                speaker=speaker_id
+            )
+        ]
+        audio = generator.generate(
+            text=text,
+            speaker=speaker_id,
+            context=context_segments,
+            max_audio_length_ms=25_000,
+        )
+        
+        # Save the generated audio - ensure tensor is on CPU
+        output_path = os.path.join(output_dir, "output.wav")
+        audio_cpu = audio.cpu() if audio.device.type != "cpu" else audio
+        torchaudio.save(output_path, audio_cpu.unsqueeze(0), generator.sample_rate)
+        print(f"Saved audio to {output_path}")
+        
+        # Update context with the new segment - keep the audio on original device
+        context_segments.append(Segment(text=text, audio=audio, speaker=speaker_id))
+        return True
+    except Exception as e:
+        print(f"Error generating audio: {str(e)}")
+        return False
+
+
 def clone_voice(
     context_audio_path: str,
     context_text: str,
     initial_text: str = None,
-    speaker_id: int = 999,
     max_seq_len: int = 4096,
-    output_dir: str = "outputs"
+    output_dir: str = "outputs",
+    speaker_id: int = 0
 ):
     """Main voice cloning function with interactive mode"""
     load_dotenv()
@@ -102,187 +133,36 @@ def clone_voice(
     context_segments = [
         Segment(
             text=context_text,
-            speaker=speaker_id,
-            audio=context_audio
+            audio=context_audio,
+            speaker=speaker_id
         )
     ]
-    spkr = speaker_id
     
     # Generate initial text if provided
     if initial_text:
-        process_text(initial_text, generator, context_segments, spkr, output_dir)
+        process_text(initial_text, generator, context_segments, output_dir, speaker_id)
     
     # Interactive mode
-    print("\nEntering interactive mode. Available commands:")
+    print("\nEntering interactive mode. Type 'exit' to quit.")
     print("- $CLEAR$ : Clear context")
-    print("- $SWAP$ : Increment speaker ID")
-    print("- $BACK$ : Decrement speaker ID")
-    print("- Use || to separate multiple speakers (e.g., 'Hello||Hi there')")
-    print("- Ctrl+C to exit")
     
     while True:
         try:
-            text = input("\nEnter text to generate (or command): ")
-            
-            if text == "$CLEAR$":
-                print("Clearing context...")
-                context_segments = [
-                    Segment(text=context_text, speaker=speaker_id, audio=context_audio)
-                ]
+            text = input("\nEnter text (or 'exit' to quit): ")
+            if text.lower() == 'exit':
+                break
+            elif text == "$CLEAR$":
+                context_segments = [context_segments[0]]  # Keep only reference segment
                 print("Context cleared.")
-            elif text == "$SWAP$":
-                spkr += 1
-                print(f"Speaker ID increased to {spkr}")
-            elif text == "$BACK$":
-                spkr -= 1
-                print(f"Speaker ID decreased to {spkr}")
-            else:
-                process_text(text, generator, context_segments, spkr, output_dir)
+                continue
                 
+            process_text(text, generator, context_segments, output_dir, speaker_id)
+            
         except KeyboardInterrupt:
-            print("\nExiting voice cloning session...")
             break
         except Exception as e:
             print(f"Error: {str(e)}")
-            traceback.print_exc()
-
-
-def process_text(text: str, generator: any, context_segments: list, spkr: int, output_dir: str):
-    """Process text input and generate audio, handling multi-speaker functionality"""
-    import torch
-    original_context = context_segments[0]  # Keep reference to original audio context
-    generated_audio = None  # Store reference for context update
-    
-    # Track memory usage
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()  # Clear unused memory
-        print(f"\nGPU Memory before generation:")
-        print(f"Allocated: {torch.cuda.memory_allocated(0) / 1024**2:.1f}MB")
-    
-    if "||" in text:
-        segments = text.split("||")
-        audio_files = []
-        
-        for i, segment in enumerate(segments):
-            if i >= 4:  # Maximum 4 speakers
-                print("Too many segments (maximum 4), skipping remaining...")
-                break
-                
-            try:
-                # Check for speaker offset at the end of text
-                if segment[-2:].startswith('-') and segment[-1].isdigit():
-                    spkr_offset = int(segment[-2:])
-                    segment = segment[:-2]
-                elif segment[-1].isdigit():
-                    spkr_offset = int(segment[-1])
-                    segment = segment[:-1]
-                else:
-                    spkr_offset = i
-            except:
-                spkr_offset = i
-                
-            current_spkr = spkr + spkr_offset
-            print(f"\nGenerating audio for speaker {current_spkr}: '{segment}'")
-            
-            # Generate with float32 precision for better audio quality
-            with torch.cuda.amp.autocast(enabled=False):  # Disable mixed precision for better quality
-                audio = generator.generate(
-                    text=segment,
-                    speaker=current_spkr,
-                    context=[original_context],  # Use only original reference audio
-                    max_audio_length_ms=25_000,
-                    temperature=0.7,
-                    topk=25
-                )
-            
-            # Minimal processing - just normalize
-            max_val = torch.max(torch.abs(audio))
-            if max_val > 0:
-                audio = audio / max_val * 0.95  # Light headroom
-            
-            # Move to CPU and ensure float32
-            audio = audio.cpu().float()
-            
-            # Save audio with high quality settings
-            filename = f"segment_{i+1}.wav"
-            filepath = os.path.join(output_dir, filename)
-            torchaudio.save(filepath, audio.unsqueeze(0), generator.sample_rate, bits_per_sample=32)
-            audio_files.append(filepath)
-            
-            # Store last generated audio for context
-            if i == len(segments) - 1:
-                generated_audio = audio.clone()
-            
-            # Clear memory
-            del audio
-            torch.cuda.empty_cache()
-        
-        # Combine audio files with minimal processing
-        if len(audio_files) > 1:
-            print("\nCombining audio segments...")
-            output_path = os.path.join(output_dir, "combined_output.wav")
-            ffmpeg_cmd = (
-                f"ffmpeg -y " + 
-                " ".join(f"-i {f}" for f in audio_files) +
-                f" -filter_complex '" +
-                "".join(f"[{i}:0]" for i in range(len(audio_files))) +
-                f"concat=n={len(audio_files)}:v=0:a=1[out]' " +
-                "-map '[out]' " +
-                "-acodec pcm_f32le " +  # Use 32-bit float output
-                f"{output_path}"
-            )
-            run(shlex.split(ffmpeg_cmd))
-            print(f"Combined audio saved to: {output_path}")
-            
-            # Clean up intermediate files
-            for f in audio_files:
-                os.remove(f)
-    else:
-        # Single speaker generation
-        print(f"\nGenerating audio for speaker {spkr}: '{text}'")
-        
-        # Generate with float32 precision
-        with torch.cuda.amp.autocast(enabled=False):
-            audio = generator.generate(
-                text=text,
-                speaker=spkr,
-                context=[original_context],
-                max_audio_length_ms=25_000,
-                temperature=0.7,
-                topk=25
-            )
-        
-        # Minimal processing - just normalize
-        max_val = torch.max(torch.abs(audio))
-        if max_val > 0:
-            audio = audio / max_val * 0.95  # Light headroom
-        
-        # Move to CPU and ensure float32
-        audio = audio.cpu().float()
-        
-        # Store reference for context update
-        generated_audio = audio.clone()
-        
-        # Save audio with high quality settings
-        output_path = os.path.join(output_dir, "output.wav")
-        torchaudio.save(output_path, audio.unsqueeze(0), generator.sample_rate, bits_per_sample=32)
-        print(f"Audio saved to: {output_path}")
-        
-        # Clear memory
-        del audio
-        torch.cuda.empty_cache()
-    
-    if torch.cuda.is_available():
-        print(f"\nGPU Memory after generation:")
-        print(f"Allocated: {torch.cuda.memory_allocated(0) / 1024**2:.1f}MB")
-    
-    # Update context with the last generated audio
-    if generated_audio is not None:
-        context_segments.append(
-            Segment(text=text, speaker=spkr, audio=generated_audio)
-        )
-        if len(context_segments) > 5:
-            context_segments = context_segments[-5:]
+            continue
 
 
 if __name__ == "__main__":
@@ -291,9 +171,9 @@ if __name__ == "__main__":
     parser.add_argument("--audio", required=True, help="Path to reference audio file")
     parser.add_argument("--text", required=True, help="Transcription of the reference audio")
     parser.add_argument("--initial", help="Initial text to generate (optional)")
-    parser.add_argument("--speaker-id", type=int, default=999, help="Speaker ID (default: 999)")
     parser.add_argument("--seq-len", type=int, default=4096, help="Model sequence length (default: 4096)")
     parser.add_argument("--output-dir", default="outputs", help="Output directory (default: outputs)")
+    parser.add_argument("--speaker-id", type=int, default=0, help="Speaker ID (default: 0)")
     
     args = parser.parse_args()
     
@@ -301,7 +181,7 @@ if __name__ == "__main__":
         context_audio_path=args.audio,
         context_text=args.text,
         initial_text=args.initial,
-        speaker_id=args.speaker_id,
         max_seq_len=args.seq_len,
-        output_dir=args.output_dir
+        output_dir=args.output_dir,
+        speaker_id=args.speaker_id
     )

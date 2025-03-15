@@ -132,7 +132,7 @@ class Model(nn.Module):
             torch.tril(torch.ones(self.args.audio_num_codebooks, self.args.audio_num_codebooks, dtype=torch.bool, device=device))
         )
 
-    @torch.cuda.amp.autocast()  # Enable automatic mixed precision
+    @torch.amp.autocast('cuda')  # Enable automatic mixed precision
     def generate_frame(
         self,
         tokens: torch.Tensor,
