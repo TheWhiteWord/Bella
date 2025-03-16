@@ -1,0 +1,142 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Git backup and temporary files
+csm-multi-git-backup/
+.git.bak/
+.git.old/
+.git.backup/
+**/hooks/
+**/.git/hooks/
+**/.git/objects/
+**/.git/refs/
+**/.git/logs/
+**/.git/FETCH_HEAD
+**/.git/ORIG_HEAD
+**/.git/index
+**/.git/packed-refs
+
+# Virtual Environment
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.project
+.pydevproject
+.settings/
+
+# Model Files and Checkpoints
+*.pt
+*.pth
+*.bin
+*.safetensors
+*.gguf
+models/**/snapshots/
+models/**/blobs/
+models/**/*.index.json
+
+# Audio Files
+*.wav
+*.mp3
+*.flac
+*.ogg
+clone_files/*.mp3
+outputs/*.wav
+
+# Generated files
+outputs/
+logs/
+wandb/
+runs/
+lightning_logs/
+
+# OS specific
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Project specific
+phi-4-multi/models/**/model-*.safetensors
+csm-multi/models/**/ckpt.pt
+*.ckpt
+
+# Keep model configuration files
+!models/**/config.json
+!models/**/tokenizer.json
+!models/**/vocab.json
+!models/**/merges.txt
+!models/**/special_tokens_map.json
+!models/**/added_tokens.json
+!models/**/tokenizer_config.json
+!models/**/preprocessor_config.json
+!models/**/generation_config.json
+
+# Documentation and research
+!doc/
+!*.md
+!LICENSE
+
+# Keep example audio files
+!examples/*.wav
+!examples/*.mp3
+!examples/*.flac
+
+# Keep example images
+!examples/*.jpg
+!examples/*.png
+
+# Jupyter Notebooks
+.ipynb_checkpoints
+*.ipynb
+
+# Cache directories
+.cache/
+__pycache__/
+*.pyc
+
+# Environment files
+.env
+.env.*
+.envrc
+
+# Testing
+.coverage
+.pytest_cache/
+htmlcov/
+.tox/
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
