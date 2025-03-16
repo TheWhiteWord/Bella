@@ -12,6 +12,7 @@ librosa>=0.10.0
 soundfile>=0.12.0
 noisereduce>=2.0.0
 scipy>=1.10.0
+pyaudio>=0.2.13
 
 # Text processing
 nltk>=3.8.0
@@ -34,3 +35,4 @@ pytest>=7.0.0
 # Optional dependencies
 wandb>=0.15.0  # for experiment tracking
 tensorboard>=2.14.0  # for visualization
+flash-attn>=2.7.4

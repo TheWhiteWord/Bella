@@ -1,5 +1,5 @@
 # CSM-Multi Documentation
-
+( $ conda activate sesame-env)
 ## Overview
 CSM-Multi is a focused implementation of the Sesame CSM-1B voice cloning system, primarily designed for creating a single-voice chat companion. The core functionality prioritizes consistent, high-quality single-voice interaction, with additional features available as extensions.
 

@@ -1,6 +1,6 @@
 # Technical Plan for Voice Companion Enhancement
 
-For detailed optimization strategies and implementation guidelines, see [Optimization Guide](OPTIMIZATION_GUIDE.md). ( $ conda activate sesame-env)
+For detailed optimization strategies and implementation guidelines, see [Optimization Guide](OPTIMIZATION_GUIDE.md).
 
 ## 1. Voice Profile System
 ### Implementation Goals
