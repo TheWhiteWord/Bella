@@ -1,9 +1,36 @@
-torch==2.4.0
-torchaudio==2.4.0
-tokenizers==0.21.0
-transformers==4.49.0
-huggingface_hub==0.28.1
-moshi==0.2.2
-torchtune==0.4.0
-torchao==0.9.0
-silentcipher @ git+https://github.com/SesameAILabs/silentcipher@master
+# Core ML dependencies
+torch>=2.0.0
+transformers>=4.36.0
+pytorch-lightning>=2.0.0
+accelerate>=0.25.0
+bitsandbytes>=0.41.0
+optimum>=1.14.0
+
+# Audio processing
+torchaudio>=2.0.0
+librosa>=0.10.0
+soundfile>=0.12.0
+noisereduce>=2.0.0
+scipy>=1.10.0
+
+# Text processing
+nltk>=3.8.0
+spacy>=3.7.0
+
+# Utilities
+numpy>=1.24.0
+pandas>=2.0.0
+tqdm>=4.65.0
+pyyaml>=6.0.0
+python-dotenv>=1.0.0
+requests>=2.31.0
+
+# Development tools
+black>=23.0.0
+isort>=5.12.0
+pylint>=2.17.0
+pytest>=7.0.0
+
+# Optional dependencies
+wandb>=0.15.0  # for experiment tracking
+tensorboard>=2.14.0  # for visualization

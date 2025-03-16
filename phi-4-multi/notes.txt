@@ -1,0 +1,17 @@
+
+I see the issue now. The processor is returning None for some fields. Let me check the structure of the inputs that the model expects:Yes, I found the key information. The Phi-4 model defines input modes in an enum class as follows:
+```python
+class InputMode(Enum):
+    LANGUAGE = 0  # Text-only mode
+    VISION = 1    # Vision+text mode 
+    SPEECH = 2    # Speech+text mode
+    VISION_SPEECH = 3  # Vision+speech+text mode
+```
+
+When using the processor, it automatically detects the mode based on the inputs provided:
+- If just text -> LANGUAGE (0)
+- If images -> VISION (1) 
+- If audio -> SPEECH (2)
+- If both images and audio -> VISION_SPEECH (3)
+
+Let me run the updated test again:
