@@ -1,7 +1,7 @@
-# Multimodal LLM and CSM TTS Integration
+# CSM Voice Integration
 
 ## Overview
-This document outlines the integration architecture between a multimodal ONNX-based LLM and the CSM TTS system, focusing on audio sentiment analysis and emotional speech generation. For implementation details of the TTS component, see [Technical Plan](TECHNICAL_PLAN.md).
+This document outlines the voice processing architecture focusing on CSM's TTS system and audio sentiment analysis capabilities. For implementation details of the TTS component, see [Technical Plan](TECHNICAL_PLAN.md).
 
 ## Architecture Components
 
@@ -13,7 +13,7 @@ Speech Input --> Audio Feature Extraction
                  Sentiment Analysis (Mimi Tokenizer)
                        |
                        v
-Multimodal LLM <-- Context Integration --> CSM TTS
+                    CSM TTS
 ```
 
 ### 2. Processing Layers
@@ -36,19 +36,11 @@ Multimodal LLM <-- Context Integration --> CSM TTS
 - **Memory Footprint**: Minimal due to amortized computation
 - **Integration Point**: Direct access to Mimi tokenizer output
 
-#### Multimodal LLM Layer (ONNX)
-- **Input**: 
-  - Semantic tokens from Mimi tokenizer
-  - Derived sentiment features
-  - Text transcription
-- **Output**: Structured response with emotional markers
-- **Integration Point**: Pre-processed audio features
-
 ### 3. CSM TTS Integration
 
 #### Emotion Mapping
 ```
-LLM Emotional Output --> CSM Parameters
+Sentiment Analysis --> CSM Parameters
 [happy] -> temperature: 0.8, top_k: 30
 [calm]  -> temperature: 0.5, top_k: 20
 [excited] -> temperature: 0.9, top_k: 35
@@ -57,7 +49,7 @@ LLM Emotional Output --> CSM Parameters
 #### Context Management
 - **Short-term**: Current conversation state
 - **Long-term**: Voice profile characteristics
-- **Memory Usage**: ~2-4GB (shared with CSM)
+- **Memory Usage**: ~2-4GB
 
 ## Implementation Considerations
 
@@ -68,12 +60,11 @@ LLM Emotional Output --> CSM Parameters
 - Feature Extraction: Shared with CSM (~0MB additional)
 - Sentiment Analysis: ~50MB
 - Context Storage: ~500MB
-- **Total Additional**: ~550MB (reduced from previous estimate due to shared processing)
+- **Total**: ~3-4GB
 
 #### Processing Latency
 - Feature Extraction: Shared with CSM (no additional latency)
 - Sentiment Analysis: 20-30ms (amortized)
-- LLM Processing: Model dependent
 - CSM Generation: 1-2s per second of audio
 
 ### 2. Optimization Techniques
@@ -88,12 +79,6 @@ LLM Emotional Output --> CSM Parameters
    - Shared cache between components
    - Efficient context pruning
    - Single copy of audio features
-
-3. **Pipeline Optimization**
-   - Parallel feature processing
-   - Cached emotional patterns
-   - Pre-computed voice profiles
-   - Unified tokenization pipeline
 
 ### 3. Integration Points
 
@@ -111,28 +96,16 @@ class SharedFeatureExtractor:
         }
 ```
 
-#### Emotion Mapping
-```python
-# Emotion to TTS parameters
-EMOTION_PARAMS = {
-    'happy': {'temp': 0.8, 'top_k': 30},
-    'calm': {'temp': 0.5, 'top_k': 20},
-    'excited': {'temp': 0.9, 'top_k': 35}
-}
-```
-
 ## Technical Requirements
 
 ### Hardware Requirements
-- GPU: 12GB+ VRAM recommended
-- RAM: 32GB recommended
+- GPU: 8GB+ VRAM recommended
+- RAM: 16GB recommended
 - CUDA: 11.x or higher
 
 ### Software Dependencies
 - PyTorch with CUDA support
-- ONNX Runtime
 - torchaudio
-- transformers
 - Additional dependencies in requirements.txt
 
 ## Implementation Phases
@@ -165,37 +138,14 @@ async def process_conversation_turn(audio_input):
         features['sentiment_features']
     )
     
-    # 3. Get LLM response with emotion
-    llm_response = await llm.generate(
-        audio_features=features['csm_tokens'],
-        sentiment=sentiment
-    )
-    
-    # 4. Generate emotional speech
+    # 3. Generate emotional speech
     speech = csm_generator.generate(
-        text=llm_response.text,
-        emotion_params=EMOTION_PARAMS[llm_response.emotion]
+        text=text_input,
+        emotion_params=EMOTION_PARAMS[sentiment]
     )
     
     return speech
 ```
-
-## Future Enhancements
-
-1. **Real-time Adaptation**
-   - Dynamic emotion adjustment
-   - Continuous learning from interaction
-   - Adaptive voice profiles
-
-2. **Advanced Context Management**
-   - Long-term memory integration
-   - Personality consistency
-   - Cross-session continuity
-
-3. **Performance Optimizations**
-   - Enhanced compute amortization
-   - Dynamic resource allocation
-   - Cached response patterns
 
 ## Limitations and Considerations
 
@@ -205,9 +155,9 @@ async def process_conversation_turn(audio_input):
    - GPU dependencies
 
 2. **Integration Challenges**
-   - Synchronization between components
-   - Error propagation
-   - Resource contention
+   - Resource management
+   - Error handling
+   - Performance optimization
 
 3. **Future Research Areas**
    - Improved emotion detection
@@ -217,6 +167,5 @@ async def process_conversation_turn(audio_input):
 ## References
 
 1. CSM Research Paper
-2. ONNX Runtime Documentation
-3. PyTorch CUDA Documentation
-4. Sesame Voice Presence Research
+2. PyTorch CUDA Documentation
+3. Sesame Voice Presence Research
