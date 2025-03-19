@@ -49,5 +49,5 @@ def download_whisper_models(model_sizes=["tiny", "base", "small", "medium"], out
 
 if __name__ == "__main__":
     # Allow specifying model sizes via command line
-    model_sizes = sys.argv[1:] if len(sys.argv) > 1 else ["tiny", "base"]
+    model_sizes = sys.argv[1:] if len(sys.argv) > 1 else ["tiny", "base", "small", "medium"]
     download_whisper_models(model_sizes)

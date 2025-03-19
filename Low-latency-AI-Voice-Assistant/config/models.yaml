@@ -12,7 +12,7 @@ models:
     name: "Gemma3:latest"
     description: "Google Gemma with vision capabilities"
     parameters:
-      temperature: 0.7
+      temperature: 0.6
       top_p: 0.9
       max_tokens: 60
       repetition_penalty: 1.05

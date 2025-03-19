@@ -6,6 +6,7 @@ from typing import Optional, Dict, Any
 import time
 from pathlib import Path
 from dotenv import load_dotenv
+import re
 
 load_dotenv()
 
@@ -33,6 +34,38 @@ class ModelConfig:
     def get_default_model(self) -> str:
         """Get the default model nickname"""
         return self.config['default_model']
+
+
+def clean_response(text: str) -> str:
+    """Remove emojis and emoticons from text.
+    
+    Args:
+        text (str): Input text to clean
+        
+    Returns:
+        str: Cleaned text without emojis/emoticons
+    """
+    # Remove unicode emojis
+    emoji_pattern = re.compile("["
+        u"\U0001F600-\U0001F64F"  # emoticons
+        u"\U0001F300-\U0001F5FF"  # symbols & pictographs
+        u"\U0001F680-\U0001F6FF"  # transport & map symbols
+        u"\U0001F1E0-\U0001F1FF"  # flags (iOS)
+        u"\U00002702-\U000027B0"
+        u"\U000024C2-\U0001F251"
+        "]+", flags=re.UNICODE)
+    
+    # Remove ASCII-style emoticons
+    ascii_pattern = re.compile(r'[:;=]-?[)(/\\|pPoO]')
+    
+    # Clean the text
+    text = emoji_pattern.sub('', text)
+    text = ascii_pattern.sub('', text)
+    
+    # Remove multiple spaces and trim
+    text = ' '.join(text.split())
+    
+    return text.strip()
 
 
 async def generate(
@@ -79,7 +112,8 @@ async def generate(
             options=model_info['parameters']
         )
         
-        response_text = response['message']['content'].strip()
+        # Clean and process the response
+        response_text = clean_response(response['message']['content'].strip())
         
         if verbose:
             print(f"Response time: {time.time() - start:.2f}s")

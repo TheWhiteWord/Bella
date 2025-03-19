@@ -10,7 +10,7 @@ import sys
 # Get the absolute path to the models directory
 MODEL_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "models", "whisper", "tiny")
 
-async def capture_audio(filename="stt_transcribe.flac", max_silence=0.8, min_speech=0.3):
+async def capture_audio(filename="stt_transcribe.flac", max_silence=0.8, min_speech=0.1):
     """Capture audio using stream-based approach with visual feedback"""
     fs = 16000  # Sampling rate
     print("\nListening... (Speak now)")
@@ -33,8 +33,8 @@ async def capture_audio(filename="stt_transcribe.flac", max_silence=0.8, min_spe
         frame = indata.astype(np.float32)
         frame_energy = np.sqrt(np.mean(frame**2))
         
-        # Voice activity detection with lower threshold
-        is_speech = frame_energy > 0.005  # More sensitive threshold
+        # Voice activity detection with adjusted threshold
+        is_speech = frame_energy > 0.030  # Increased threshold from 0.005 to 0.015
         
         if is_speech:
             if not is_recording:
