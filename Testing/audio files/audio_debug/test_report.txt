@@ -1,0 +1,15 @@
+Speech-to-Text Test Report
+==================================================
+
+Raw Audio File: Testing/audio files/audio_debug/raw_input.wav
+Processed Audio File: Testing/audio files/quality_test.wav
+SNR: -3.69 dB
+Clipping Detected: True
+Voice Activity Ratio: 100.00%
+
+Transcription Results:
+
+Segment 1:
+Text:  I will kill you.
+Time: 0.08s - 1.08s
+Confidence: -1.03
