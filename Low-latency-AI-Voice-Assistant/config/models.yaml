@@ -8,6 +8,15 @@ models:
       max_tokens: 60
       repetition_penalty: 1.1
 
+  gemma3:
+    name: "Gemma3:latest"
+    description: "Google Gemma with vision capabilities"
+    parameters:
+      temperature: 0.7
+      top_p: 0.9
+      max_tokens: 60
+      repetition_penalty: 1.05
+
   dolphin8b:
     name: "hf.co/bartowski/Dolphin3.0-Llama3.1-8B-GGUF:Q8_0"
     description: "Dolphin 8B model - good for chat and reasoning"
@@ -35,4 +44,4 @@ models:
       max_tokens: 60
       repetition_penalty: 1.15
 
-default_model: "hermes8b"  # Default model to use
+default_model: "gemma3"  # Default model to use

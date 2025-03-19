@@ -1,7 +1,7 @@
 from Models_interaction.llm_response import generate, list_available_models, list_available_models_from_ollama
 import asyncio
 
-async def generate_llm_response(user_input: str, history_context: str, model: str = "hermes8b") -> str:
+async def generate_llm_response(user_input: str, history_context: str, model: str = "Gemma3") -> str:
     """Generate a response using local Ollama model.
     
     Args:

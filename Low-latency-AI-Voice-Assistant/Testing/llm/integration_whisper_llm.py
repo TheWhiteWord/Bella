@@ -32,7 +32,7 @@ async def main_interaction_loop():
         response = await generate(
             prompt=transcribed_text,
             system_prompt="Be concise, helpful, and friendly. Keep responses under 20 words.",
-            model="hermes8b",  # Using our default Ollama model from config
+            model="gemma3",  # Using our default Ollama model from config
             verbose=True
         )
         

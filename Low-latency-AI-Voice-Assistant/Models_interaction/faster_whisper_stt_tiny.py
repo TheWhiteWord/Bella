@@ -10,7 +10,7 @@ import sys
 # Get the absolute path to the models directory
 MODEL_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "models", "whisper", "tiny")
 
-async def capture_audio(filename="stt_transcribe.flac", max_silence=0.8, min_speech=0.1):
+async def capture_audio(filename="stt_transcribe.flac", max_silence=0.8, min_speech=0.3):
     """Capture audio using stream-based approach with visual feedback"""
     fs = 16000  # Sampling rate
     print("\nListening... (Speak now)")
