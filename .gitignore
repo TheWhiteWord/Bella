@@ -75,6 +75,10 @@ Thumbs.db
 # Project specific
 phi-4-multi/models/**/model-*.safetensors
 csm-multi/models/**/ckpt.pt
+Low-latency-AI-Voice-Assistant/models/**/*
+!Low-latency-AI-Voice-Assistant/models/download_whisper_models.py
+Low-latency-AI-Voice-Assistant/models/whisper/*
+Low-latency-AI-Voice-Assistant/models/models--*/**/*
 
 # Keep model configuration files
 !models/**/config.json
