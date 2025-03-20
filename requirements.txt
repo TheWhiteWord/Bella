@@ -1,35 +1,24 @@
-# Core ML and Audio Processing
 torch==2.4.0  
 torchaudio==2.4.0
-transformers==4.49.0
+transformers
 tokenizers==0.21.0
-huggingface_hub==0.28.1
+huggingface_hub
 numpy
-
-
-# Voice and Audio Processing
+ffmpeg-python
 sounddevice
 soundfile
 pygame
 faster-whisper      # Speech to text
-
-# CSM Model Requirements
 moshi>=0.2.2        # Required for CSM
 torchtune==0.4.0
 torchao==0.9.0     
 flash-attn>=2.7.4   # Attention optimization
-
-
-# LLM and Text Processing
+bitsandbytes>=0.41.1
 ollama       
 dspy         
-
-# UI and Streaming
 streamlit 
 streamlit-webrtc
 python-dotenv
 asyncio
-
-# Development and Testing
 pytest 
 

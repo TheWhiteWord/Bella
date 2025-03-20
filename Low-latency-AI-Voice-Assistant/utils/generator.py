@@ -6,13 +6,13 @@ from pathlib import Path
 import torch
 import torchaudio
 from huggingface_hub import hf_hub_download
-from models import Model, ModelArgs
+from .models import Model, ModelArgs  # Fix import path to use local models.py
 from moshi.models import loaders
 from tokenizers.processors import TemplateProcessing
 from transformers import AutoTokenizer
 
 # Configure local cache directory
-CACHE_DIR = os.path.join(os.path.dirname(__file__), "models")
+CACHE_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "models")
 os.makedirs(CACHE_DIR, exist_ok=True)
 
 @dataclass
@@ -40,17 +40,20 @@ def get_local_model_path(filename: str) -> str:
     return None
 
 def load_llama3_tokenizer():
-    """
-    https://github.com/huggingface/transformers/issues/22794#issuecomment-2092623992
-    """
-    tokenizer_name = "meta-llama/Llama-3.2-1B"
+    """Load Llama tokenizer from local files."""
+    snapshot_path = os.path.join(CACHE_DIR, 
+                               "models--meta-llama--Llama-3.2-1B", 
+                               "snapshots",
+                               "4e20de362430cd3b72f300e6b0f18e50e7166e08")
+    
+    if not os.path.isdir(snapshot_path):
+        raise FileNotFoundError("Could not find local Llama tokenizer files")
+        
     tokenizer = AutoTokenizer.from_pretrained(
-        tokenizer_name,
-        token=os.getenv("HUGGING_FACE_TOKEN"),
-        trust_remote_code=True,
-        cache_dir=CACHE_DIR,
+        snapshot_path,
         local_files_only=True  # Only use local files
     )
+
     bos = tokenizer.bos_token
     eos = tokenizer.eos_token
     tokenizer._tokenizer.post_processor = TemplateProcessing(

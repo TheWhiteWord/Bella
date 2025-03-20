@@ -143,7 +143,7 @@ class SemanticContextManager:
         """Reset semantic context."""
         self.current_segments.clear()
 
-class CSMVoiceGenerator:
+class CSMSpeechProcessor:
     def __init__(self, reference_audio: str, reference_text: str):
         """Initialize CSM voice generator with reference audio for voice cloning.
         
@@ -194,6 +194,10 @@ class CSMVoiceGenerator:
             # Combine contexts, prioritizing voice context
             combined_context = voice_context + semantic_context
             
+            # Estimate audio length based on text length (approximate 100ms per character)
+            estimated_duration = len(text) * 100
+            max_duration = max(estimated_duration, 25_000)  # At least 25 seconds
+            
             # Run generation in ThreadPoolExecutor to avoid blocking
             audio = await asyncio.get_event_loop().run_in_executor(
                 None,
@@ -201,7 +205,7 @@ class CSMVoiceGenerator:
                     text=text,
                     speaker=0,
                     context=combined_context,
-                    max_audio_length_ms=10_000,
+                    max_audio_length_ms=max_duration,
                     temperature=0.7,
                     topk=25
                 )
@@ -235,9 +239,14 @@ class CSMVoiceGenerator:
         if is_new_conversation:
             self.semantic_context.reset_context()
             
-        output_dir = "Testing/audio files"
+        # Use absolute paths
+        root_dir = os.path.dirname(os.path.dirname(__file__))
+        output_dir = os.path.join(root_dir, "Testing", "audio files")
         os.makedirs(output_dir, exist_ok=True)
-        output_file = os.path.join(output_dir, "tts_response.wav")
+        
+        # Generate unique filename
+        timestamp = asyncio.get_event_loop().time()
+        output_file = os.path.join(output_dir, f"tts_response_{timestamp:.0f}.wav")
         
         audio, sr = await self.generate_speech(text, output_file)
         return output_file if audio is not None else None
@@ -258,7 +267,7 @@ class CSMVoiceGenerator:
 if __name__ == "__main__":
     # Test the functionality of the convert_text_to_speech function
     text = "Hello , how are you doing today?"
-    generator = CSMVoiceGenerator(reference_audio="path/to/reference_audio.wav", reference_text="reference text")
+    generator = CSMSpeechProcessor(reference_audio="path/to/reference_audio.wav", reference_text="reference text")
     output_file = asyncio.run(generator.convert_text_to_speech(text))
     print(f"Audio file saved at: {output_file}")
     play_audio(output_file)
@@ -292,7 +301,7 @@ rate = st.slider("Rate", -50, 50, 0)
 if st.button("Process"):
     text = speech_to_text(audio_input)
     response = generate_response(text)
-    generator = CSMVoiceGenerator(reference_audio="path/to/reference_audio.wav", reference_text="reference text")
+    generator = CSMSpeechProcessor(reference_audio="path/to/reference_audio.wav", reference_text="reference text")
     audio_output = asyncio.run(generator.convert_text_to_speech(response))
     st.audio(audio_output)
     conversation_history += f"""You: {text}\nAssistant: {response}\n"""

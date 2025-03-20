@@ -1,0 +1,11 @@
+Collecting numpy
+  Using cached numpy-2.2.4-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.metadata (62 kB)
+Collecting protobuf
+  Downloading protobuf-6.30.1-cp39-abi3-manylinux2014_x86_64.whl.metadata (593 bytes)
+Collecting urllib3
+  Using cached urllib3-2.3.0-py3-none-any.whl.metadata (6.5 kB)
+Using cached numpy-2.2.4-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (16.4 MB)
+Downloading protobuf-6.30.1-cp39-abi3-manylinux2014_x86_64.whl (316 kB)
+Using cached urllib3-2.3.0-py3-none-any.whl (128 kB)
+Installing collected packages: urllib3, protobuf, numpy
+Successfully installed numpy-2.2.4 protobuf-6.30.1 urllib3-2.3.0

@@ -1,6 +1,6 @@
 import streamlit as st
 import asyncio
-from utils.tts_conversion import CSMVoiceGenerator
+from utils.csm_tts import CSMSpeechProcessor
 from Models_interaction.faster_whisper_stt_tiny import capture_audio, transcribe_audio
 from utils.llm_interaction import generate_llm_response, get_available_models
 import os
@@ -21,7 +21,7 @@ def init_csm_tts():
     with open(reference_text_path, 'r') as f:
         reference_text = f.read()
     
-    tts = CSMVoiceGenerator(
+    tts = CSMSpeechProcessor(
         reference_audio=reference_audio,
         reference_text=reference_text
     )
