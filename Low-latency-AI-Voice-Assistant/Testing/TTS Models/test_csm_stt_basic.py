@@ -4,6 +4,9 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
 import asyncio
 from utils.csm_tts import CSMSpeechProcessor
+import pygame
+import torch
+import torchaudio
 
 # Test responses with varying prosody and semantic characteristics
 TEST_RESPONSES = [
@@ -11,6 +14,20 @@ TEST_RESPONSES = [
     "That's an interesting question. Let me think about it...",  # Thoughtful pause
     "Based on my analysis, there are three key points to consider.",  # Structured response
 ]
+
+def play_audio_file(file_path):
+    """Play an audio file using pygame and wait for it to finish."""
+    try:
+        pygame.mixer.init()
+        pygame.mixer.music.load(file_path)
+        print(f"\nPlaying audio from: {file_path}")
+        pygame.mixer.music.play()
+        while pygame.mixer.music.get_busy():
+            pygame.time.Clock().tick(10)
+    except Exception as e:
+        print(f"Error playing audio: {e}")
+    finally:
+        pygame.mixer.quit()
 
 async def test_csm_tts_basic():
     """Basic test of CSM's text-to-speech capabilities with voice cloning."""
@@ -44,11 +61,16 @@ async def test_csm_tts_basic():
             
             if audio_file and os.path.exists(audio_file):
                 print(f"✓ Successfully generated speech file: {audio_file}")
-                print("Audio file ready for playback")
                 
                 # Print file stats
                 file_size = os.path.getsize(audio_file) / 1024  # KB
                 print(f"File size: {file_size:.2f}KB")
+                
+                # Load and play the generated audio
+                play_audio_file(audio_file)
+                
+                # Wait for user confirmation before next test
+                input("\nPress Enter for next test...")
             else:
                 print(f"✗ Failed to generate speech for test {i}")
                 
