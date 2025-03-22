@@ -24,7 +24,7 @@ async def test_ollama_connection() -> bool:
         return False
 
 async def test_model_response(
-    model: str = "DeepHermes-3-Llama-3-8B-q8.gguff", 
+    model: str = "Gemma3:latest", 
     test_prompt: str = "What is 2+2? Answer in one word.",
     system_prompt: str = "You are a helpful assistant. Keep responses very brief."
 ) -> Optional[Dict[Any, Any]]:
@@ -66,12 +66,12 @@ async def run_test_suite():
     # Test 2: Basic response generation with models from our config
     test_cases = [
         {
-            "model": "DeepHermes-3-Llama-3-8B-q8.gguff",
+            "model": "Gemma3:latest",
             "test_prompt": "What is 2+2? Answer in one word.",
             "system_prompt": "You are a helpful assistant. Keep responses very brief."
         },
         {
-            "model": "hf.co/bartowski/Dolphin3.0-Llama3.1-8B-GGUF:Q8_0",
+            "model": "Gemma3:latest",
             "test_prompt": "Write a haiku about programming.",
             "system_prompt": "You are a poet. Respond with exactly one haiku."
         }
