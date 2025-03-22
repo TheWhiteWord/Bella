@@ -1,1 +1,0 @@
-"""Pipeline management for voice assistant"""
