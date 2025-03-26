@@ -2,6 +2,7 @@ import os
 import sys
 import asyncio
 import argparse
+import sounddevice as sd
 
 # Add project root directory to Python path
 project_root = os.path.dirname(os.path.abspath(__file__))
@@ -12,18 +13,44 @@ from src.utility.buffered_recorder import BufferedRecorder, create_audio_stream
 from src.llm.llm_interaction import generate_llm_response, get_available_models
 from src.kokoro_tts.kokoro_tts import KokoroTTSWrapper
 
-async def init_tts_engine():
-    """Initialize the TTS engine with Kokoro's voice."""
-    return KokoroTTSWrapper()  # Uses default paths and settings
+def list_audio_devices():
+    """List all available audio output devices."""
+    devices = sd.query_devices()
+    print("\nAvailable audio devices:")
+    for i, dev in enumerate(devices):
+        out_channels = dev['max_output_channels']
+        print(f"{i}: {dev['name']}")
+        print(f"   Outputs: {out_channels}")
 
-async def main_interaction_loop(model: str = "Gemma3"):
+async def init_tts_engine(device_index: int = None):
+    """Initialize the TTS engine with Kokoro's voice.
+    
+    Args:
+        device_index (int, optional): Index of audio device to use
+    """
+    print("Initializing TTS engine...")
+    engine = KokoroTTSWrapper(
+        default_voice="af_heart",
+        speed=0.9,  # Slightly slower for better clarity
+        device_index=device_index
+    )
+    # Wait for engine to fully initialize
+    await asyncio.sleep(1)
+    return engine
+
+async def main_interaction_loop(model: str = "Gemma3", device_index: int = None):
     """Main loop for capturing speech, generating responses, and playing audio.
     
     Args:
         model (str): Model nickname for Ollama (default: Gemma3)
+        device_index (int, optional): Index of audio device to use
     """
     print("\nInitializing voice synthesis...")
-    tts_engine = await init_tts_engine()
+    try:
+        tts_engine = await init_tts_engine(device_index)
+    except Exception as e:
+        print(f"\nError initializing TTS engine: {e}")
+        return
     
     # Print available models
     models = await get_available_models()
@@ -102,10 +129,14 @@ async def main_interaction_loop(model: str = "Gemma3"):
 
                 # Convert response to speech and play it
                 print("\nGenerating speech...")
-                await tts_engine.generate_speech(response)
+                try:
+                    await tts_engine.generate_speech(response)
+                except Exception as e:
+                    print(f"\nError during speech generation: {e}")
+                    continue  # Skip to next iteration if TTS fails
 
                 # Only resume recording after response has fully played
-                await asyncio.sleep(0.5)  # Add small delay to prevent cutting off end of response
+                await asyncio.sleep(1.0)  # Increased delay to ensure audio completion
                 
                 print("\nRecording resumed...")
                 recorder.should_stop = False
@@ -129,6 +160,21 @@ if __name__ == "__main__":
         default="Gemma3",
         help="Model to use for responses (e.g., Gemma3, hermes8b, dolphin8b)"
     )
+    parser.add_argument(
+        "--list-devices",
+        action="store_true",
+        help="List available audio devices and exit"
+    )
+    parser.add_argument(
+        "--device",
+        type=int,
+        help="Index of audio output device to use"
+    )
     
     args = parser.parse_args()
-    asyncio.run(main_interaction_loop(args.model))
+    
+    if args.list_devices:
+        list_audio_devices()
+        sys.exit(0)
+        
+    asyncio.run(main_interaction_loop(args.model, args.device))

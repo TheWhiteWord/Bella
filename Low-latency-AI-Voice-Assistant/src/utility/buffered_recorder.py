@@ -28,9 +28,9 @@ class BufferedRecorder:
         self.fade_duration = 0.1
         
         # Voice detection settings - Adjusted for better detection
-        self.voice_threshold = 0.02  # Increased slightly
-        self.initial_voice_threshold = 0.03  # Higher threshold for initial detection
-        self.silence_energy_threshold = 0.015  # Increased slightly
+        self.voice_threshold = 0.4  # Increased slightly
+        self.initial_voice_threshold = 0.10  # Higher threshold for initial detection
+        self.silence_energy_threshold = 0.05  # Increased slightly
         self.min_valid_frames = 8  # Increased for more stable detection
         self.valid_frame_count = 0
         self.last_energies = deque(maxlen=15)  # Increased history
