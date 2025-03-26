@@ -13,27 +13,32 @@ from faster_whisper import WhisperModel
 import asyncio
 from functools import lru_cache
 
-# Define model path
-MODEL_PATH = os.path.join(
-    os.path.dirname(os.path.dirname(__file__)),
-    "models",
-    "whisper",
-    "tiny"
-)
+# Define model path - using the remote model ID for reliability
+MODEL_NAME = "tiny"
 
 # Initialize model once and cache it
 @lru_cache(maxsize=1)
 def get_whisper_model():
     """Get or initialize the Whisper model with optimized settings."""
-    return WhisperModel(
-        MODEL_PATH,
-        device="cpu",
-        compute_type="int8",  # Use int8 quantization for efficiency
-        cpu_threads=4  # Adjust based on system
-    )
+    try:
+        return WhisperModel(
+            MODEL_NAME,
+            device="cpu",
+            compute_type="int8",  # Use int8 quantization for efficiency
+            cpu_threads=4  # Adjust based on system
+        )
+    except Exception as e:
+        print(f"Error loading model from path, falling back to remote model: {e}")
+        # Fallback to downloading the model from HF
+        return WhisperModel(
+            "Systran/faster-whisper-tiny",
+            device="gpu", 
+            compute_type="int8",
+            cpu_threads=4
+        )
 
 async def transcribe_audio(audio_file: str) -> str:
-    """Transcribe audio using local Whisper tiny model.
+    """Transcribe audio using Whisper tiny model.
     
     Args:
         audio_file (str): Path to the audio file to transcribe
@@ -48,7 +53,7 @@ async def transcribe_audio(audio_file: str) -> str:
         # Get cached model instance
         model = get_whisper_model()
         
-        # Run transcription in a thread pool to avoid blocking
+        # Run transcription in executor to avoid blocking
         loop = asyncio.get_event_loop()
         segments, _ = await loop.run_in_executor(
             None,
@@ -57,14 +62,12 @@ async def transcribe_audio(audio_file: str) -> str:
                 beam_size=5,
                 language="en",
                 condition_on_previous_text=False,
-                no_speech_threshold=0.3,
-                compression_ratio_threshold=2.4,
-                log_prob_threshold=-1.0,
+                no_speech_threshold=0.3,  # More sensitive to speech
                 vad_filter=True,
                 vad_parameters=dict(
-                    min_silence_duration_ms=500,
-                    speech_pad_ms=400,
-                    threshold=0.3
+                    min_silence_duration_ms=500,  # Minimum silence duration between phrases
+                    speech_pad_ms=400,  # Add padding around voice segments
+                    threshold=0.3  # Voice activity detection threshold
                 )
             )
         )

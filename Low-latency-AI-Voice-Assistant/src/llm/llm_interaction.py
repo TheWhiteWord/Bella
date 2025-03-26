@@ -1,4 +1,4 @@
-from Models_interaction.llm_response import generate, list_available_models, list_available_models_from_ollama
+from .llm_response import generate, list_available_models, list_available_models_from_ollama
 import asyncio
 
 async def generate_llm_response(user_input: str, history_context: str, model: str = "Gemma3", timeout: float = 15.0) -> str:

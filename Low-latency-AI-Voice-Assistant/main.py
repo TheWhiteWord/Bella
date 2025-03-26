@@ -1,16 +1,20 @@
+import os
+import sys
 import asyncio
 import argparse
-from Models_interaction.audio_session_manager import AudioSessionManager
-from Models_interaction.buffered_recorder import BufferedRecorder, create_audio_stream
-from Models_interaction.llm_interaction import generate_llm_response, get_available_models
-import os
-from RealtimeTTS import TextToAudioStream, KokoroEngine
+
+# Add project root directory to Python path
+project_root = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, project_root)
+
+from src.utility.audio_session_manager import AudioSessionManager
+from src.utility.buffered_recorder import BufferedRecorder, create_audio_stream
+from src.llm.llm_interaction import generate_llm_response, get_available_models
+from src.kokoro_tts.kokoro_tts import KokoroTTSWrapper
 
 async def init_tts_engine():
     """Initialize the TTS engine with Kokoro's voice."""
-    engine = KokoroEngine(voice="Bella")
-    stream = TextToAudioStream(engine=engine)
-    return stream
+    return KokoroTTSWrapper()  # Uses default paths and settings
 
 async def main_interaction_loop(model: str = "Gemma3"):
     """Main loop for capturing speech, generating responses, and playing audio.
@@ -98,10 +102,7 @@ async def main_interaction_loop(model: str = "Gemma3"):
 
                 # Convert response to speech and play it
                 print("\nGenerating speech...")
-                tts_engine.feed(response)
-                await tts_engine.play_async()
-                while tts_engine.is_playing():
-                    await asyncio.sleep(0.1)
+                await tts_engine.generate_speech(response)
 
                 # Only resume recording after response has fully played
                 await asyncio.sleep(0.5)  # Add small delay to prevent cutting off end of response
@@ -119,6 +120,7 @@ async def main_interaction_loop(model: str = "Gemma3"):
         if 'stream' in locals():
             stream.stop()
             stream.close()
+        tts_engine.stop()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Voice Assistant with Local LLM")
