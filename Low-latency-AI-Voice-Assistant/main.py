@@ -3,23 +3,16 @@ import argparse
 from Models_interaction.audio_session_manager import AudioSessionManager
 from Models_interaction.buffered_recorder import BufferedRecorder, create_audio_stream
 from utils.llm_interaction import generate_llm_response, get_available_models
-from utils.csm_tts import CSMSpeechProcessor, play_audio
 import os
+from RealtimeTTS import TextToAudioStream, KokoroEngine
+import pygame
 
 async def init_tts_engine():
-    """Initialize the TTS engine with Bella's voice."""
-    # Get paths relative to main.py
-    root_dir = os.path.dirname(__file__)
-    reference_audio = os.path.join(root_dir, "clone_files", "bella_edit.mp3")
-    reference_text_path = os.path.join(root_dir, "clone_files", "Bella_transcript.txt")
-    
-    with open(reference_text_path, 'r') as f:
-        reference_text = f.read().strip()
-    
-    return CSMSpeechProcessor(
-        reference_audio=reference_audio,
-        reference_text=reference_text
-    )
+    """Initialize the TTS engine with Kokoro's voice."""
+    pygame.mixer.init()
+    engine = KokoroEngine(voice="Bella")
+    stream = TextToAudioStream(engine=engine)
+    return stream
 
 async def main_interaction_loop(model: str = "Gemma3"):
     """Main loop for capturing speech, generating responses, and playing audio.
@@ -107,16 +100,10 @@ async def main_interaction_loop(model: str = "Gemma3"):
 
                 # Convert response to speech and play it
                 print("\nGenerating speech...")
-                audio_file = await tts_engine.convert_text_to_speech(response)
-                
-                if audio_file:
-                    print("\nPlaying response...")
-                    await play_audio(audio_file)
-                    # Clean up audio file
-                    try:
-                        os.remove(audio_file)
-                    except:
-                        pass
+                tts_engine.feed(response)
+                await tts_engine.play_async()
+                while tts_engine.is_playing():
+                    await asyncio.sleep(0.1)
 
                 # Only resume recording after response has fully played
                 await asyncio.sleep(0.5)  # Add small delay to prevent cutting off end of response
@@ -134,9 +121,7 @@ async def main_interaction_loop(model: str = "Gemma3"):
         if 'stream' in locals():
             stream.stop()
             stream.close()
-        if tts_engine:
-            tts_engine.reset_all_contexts()
-            del tts_engine
+        pygame.mixer.quit()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Voice Assistant with Local LLM")

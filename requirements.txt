@@ -16,9 +16,7 @@ flash-attn>=2.7.4   # Attention optimization
 bitsandbytes>=0.41.1
 ollama       
 dspy         
-streamlit 
-streamlit-webrtc
 python-dotenv
 asyncio
 pytest 
-
+webrtcvad

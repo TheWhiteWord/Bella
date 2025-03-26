@@ -1,12 +1,4 @@
 models:
-  hermes8b:
-    name: "DeepHermes-3-Llama-3-8B-q8.gguff:latest"
-    description: "DeepHermes 8B quantized model for general use"
-    parameters:
-      temperature: 0.7
-      top_p: 0.95
-      max_tokens: 60
-      repetition_penalty: 1.1
 
   gemma3:
     name: "Gemma3:latest"
@@ -16,32 +8,5 @@ models:
       top_p: 0.9
       max_tokens: 60
       repetition_penalty: 1.05
-
-  dolphin8b:
-    name: "hf.co/bartowski/Dolphin3.0-Llama3.1-8B-GGUF:Q8_0"
-    description: "Dolphin 8B model - good for chat and reasoning"
-    parameters:
-      temperature: 0.8
-      top_p: 0.9
-      max_tokens: 60
-      repetition_penalty: 1.05
-
-  hermes3b:
-    name: "hf.co/bartowski/NousResearch_DeepHermes-3-Llama-3-3B-Preview-GGUF:Q6_K_L"
-    description: "Lightweight 3B model for faster responses"
-    parameters:
-      temperature: 0.7
-      top_p: 0.95
-      max_tokens: 60
-      repetition_penalty: 1.0
-
-  hermes24b:
-    name: "hf.co/bartowski/NousResearch_DeepHermes-3-Mistral-24B-Preview-GGUF:Q4_K_L"
-    description: "Large 24B model for high-quality responses"
-    parameters:
-      temperature: 0.65
-      top_p: 0.92
-      max_tokens: 60
-      repetition_penalty: 1.15
 
 default_model: "gemma3"  # Default model to use
