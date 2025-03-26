@@ -69,11 +69,11 @@ class Generator:
     def __init__(
         self,
         model: Model,
-        max_seq_len: int = 2048  # Add sequence length parameter
+        max_seq_len: int = 2048
     ):
         self._model = model
         self._model.setup_caches(1)
-        self.max_seq_len = max_seq_len  # Store sequence length
+        self.max_seq_len = max_seq_len
 
         self._text_tokenizer = load_llama3_tokenizer()
 
@@ -85,7 +85,7 @@ class Generator:
             token=os.getenv("HUGGING_FACE_TOKEN")
         )
         # Move mimi model to half precision
-        with torch.cuda.amp.autocast():
+        with torch.amp.autocast(device_type='cuda', dtype=torch.bfloat16):
             mimi = loaders.get_mimi(mimi_weight, device=device)
             mimi.set_num_codebooks(32)
         self._audio_tokenizer = mimi
@@ -149,6 +149,7 @@ class Generator:
         temperature: float = 0.7,
         topk: int = 25,
     ) -> torch.Tensor:
+        """Generate audio with optimized CUDA memory management."""
         self._model.reset_caches()
 
         max_audio_frames = int(max_audio_length_ms / 80)
@@ -156,7 +157,7 @@ class Generator:
         
         # Process context with memory efficiency
         for segment in context:
-            with torch.amp.autocast('cuda', dtype=torch.bfloat16):  # Keep bfloat16 for token processing
+            with torch.amp.autocast(device_type='cuda', dtype=torch.bfloat16):
                 segment_tokens, segment_tokens_mask = self._tokenize_segment(segment)
                 tokens.append(segment_tokens)
                 tokens_mask.append(segment_tokens_mask)
@@ -165,21 +166,20 @@ class Generator:
         tokens.append(gen_segment_tokens)
         tokens_mask.append(gen_segment_tokens_mask)
 
+        # Move tensors to GPU efficiently
         prompt_tokens = torch.cat(tokens, dim=0).long().to(self.device)
         prompt_tokens_mask = torch.cat(tokens_mask, dim=0).bool().to(self.device)
-
-        samples = []
         curr_tokens = prompt_tokens.unsqueeze(0)
         curr_tokens_mask = prompt_tokens_mask.unsqueeze(0)
-        curr_pos = torch.arange(0, prompt_tokens.size(0)).unsqueeze(0).long().to(self.device)
+        curr_pos = torch.arange(0, prompt_tokens.size(0), device=self.device).unsqueeze(0)
 
-        # Use the instance's max_seq_len
         effective_max_seq_len = self.max_seq_len - max_audio_frames
         if curr_tokens.size(1) >= effective_max_seq_len:
             raise ValueError(f"Inputs too long, must be below max_seq_len - max_audio_frames: {effective_max_seq_len}")
 
-        # Generate frames with memory optimization
-        with torch.amp.autocast('cuda', dtype=torch.bfloat16):  # Keep bfloat16 for token generation
+        # Generate frames with optimized memory management
+        samples = []
+        with torch.amp.autocast(device_type='cuda', dtype=torch.bfloat16):
             for _ in range(max_audio_frames):
                 sample = self._model.generate_frame(curr_tokens, curr_tokens_mask, curr_pos, temperature, topk)
                 if torch.all(sample == 0):
@@ -187,32 +187,27 @@ class Generator:
 
                 samples.append(sample)
 
-                curr_tokens = torch.cat([sample, torch.zeros(1, 1).long().to(self.device)], dim=1).unsqueeze(1)
+                curr_tokens = torch.cat([sample, torch.zeros(1, 1, device=self.device).long()], dim=1).unsqueeze(1)
                 curr_tokens_mask = torch.cat(
-                    [torch.ones_like(sample).bool(), torch.zeros(1, 1).bool().to(self.device)], dim=1
+                    [torch.ones_like(sample).bool(), torch.zeros(1, 1, device=self.device).bool()], dim=1
                 ).unsqueeze(1)
                 curr_pos = curr_pos[:, -1:] + 1
 
-                # Optional: Clear cache periodically during long generations
+                # Periodic memory cleanup
                 if len(samples) % 50 == 0:
                     torch.cuda.empty_cache()
 
-        # Process final audio with minimal post-processing
-        with torch.autocast('cuda', enabled=False):
-            # Stack samples and keep as integers for decoding
+        # Process final audio with optimized memory
+        with torch.amp.autocast(device_type='cuda', enabled=False):
             stacked_samples = torch.stack(samples)
-            
-            # Decode audio with full precision
             audio = self._audio_tokenizer.decode(stacked_samples.permute(1, 2, 0)).squeeze(0).squeeze(0)
-            
-            # Convert to float32 for minimal processing
             audio = audio.to(dtype=torch.float32)
-
-            # Clear samples to free memory
+            
+            # Clear intermediate tensors
             del samples, stacked_samples
             torch.cuda.empty_cache()
 
-            # Simple normalization with headroom, no compression
+            # Normalize with headroom
             max_val = torch.max(torch.abs(audio))
             if max_val > 0:
                 audio = (audio / max_val) * 0.95
@@ -221,7 +216,23 @@ class Generator:
 
 
 def load_csm_1b(ckpt_path: str = "ckpt.pt", device: str = "cuda", max_seq_len: int = 2048) -> Generator:
-    """Load CSM-1B model, prioritizing local files"""
+    """Load CSM-1B model, prioritizing local files and CUDA optimization"""
+    # Convert device string to proper torch.device object
+    if isinstance(device, str):
+        device = torch.device("cuda:0" if device == "cuda" else device)
+    
+    # Check CUDA availability and set optimal CUDA settings
+    if device.type == "cuda" and torch.cuda.is_available():
+        # Set optimal CUDA settings for RTX 4070 Ti SUPER (16GB VRAM)
+        torch.cuda.set_per_process_memory_fraction(0.95)  # Use 95% of available VRAM
+        torch.backends.cudnn.benchmark = True  # Enable cuDNN auto-tuner
+        torch.backends.cuda.matmul.allow_tf32 = True  # Enable TensorFloat-32
+        torch.backends.cudnn.allow_tf32 = True  # Enable TF32 for cuDNN
+        print("CUDA optimizations enabled for high-end GPU")
+    else:
+        print("CUDA requested but not available, falling back to CPU")
+        device = torch.device("cpu")
+    
     # First check if the provided path exists
     if os.path.exists(ckpt_path):
         model_path = ckpt_path
@@ -247,11 +258,35 @@ def load_csm_1b(ckpt_path: str = "ckpt.pt", device: str = "cuda", max_seq_len: i
         text_vocab_size=128256,
         audio_vocab_size=2051,
         audio_num_codebooks=32,
+        max_seq_len=max_seq_len
     )
-    model = Model(model_args).to(device=device, dtype=torch.bfloat16)
-    print(f"Loading model from: {model_path}")
-    state_dict = torch.load(model_path)
-    model.load_state_dict(state_dict)
-
+    
+    # Initialize model with proper device handling
+    print(f"Loading model to {device} with bfloat16 and optimized settings...")
+    
+    # Load state dict first
+    state_dict = torch.load(model_path, map_location=device, weights_only=True)
+    
+    # Create model instance and register buffers before loading state dict
+    with torch.amp.autocast(device_type=device.type, dtype=torch.bfloat16):
+        model = Model(model_args)
+        model.device = device  # Ensure device is properly set
+        
+        # Pre-register buffers before loading state dict
+        backbone_mask = torch.tril(torch.ones(model.backbone.max_seq_len, model.backbone.max_seq_len, 
+                                            dtype=torch.bool, device=device))
+        decoder_mask = torch.tril(torch.ones(model_args.audio_num_codebooks, model_args.audio_num_codebooks, 
+                                           dtype=torch.bool, device=device))
+        model.register_buffer("backbone_causal_mask", backbone_mask)
+        model.register_buffer("decoder_causal_mask", decoder_mask)
+        
+        # Now load the state dict
+        model.load_state_dict(state_dict, strict=False)  # Use strict=False to allow missing buffers
+        
+        # Move model to device and initialize caches
+        model = model.to(device=device, dtype=torch.bfloat16, non_blocking=True)
+        model.setup_caches(1)  # Initialize caches after moving to device
+    
+    # Initialize generator with device-aware model
     generator = Generator(model, max_seq_len=max_seq_len)
     return generator

@@ -16,7 +16,7 @@ import os
 from .faster_whisper_stt_tiny import transcribe_audio
 
 class AudioSessionManager:
-    def __init__(self, gap_timeout: float = 2.0, max_session_time: float = 10.0, debug: bool = False):
+    def __init__(self, gap_timeout: float = 1.0, max_session_time: float = 10.0, debug: bool = False):
         """Initialize the session manager.
         
         Args:
