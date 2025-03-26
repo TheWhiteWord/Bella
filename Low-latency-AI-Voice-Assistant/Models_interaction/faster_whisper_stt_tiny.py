@@ -10,6 +10,8 @@ The process repeats.
 """
 import os
 from faster_whisper import WhisperModel
+import asyncio
+from functools import lru_cache
 
 # Define model path
 MODEL_PATH = os.path.join(
@@ -18,6 +20,17 @@ MODEL_PATH = os.path.join(
     "whisper",
     "tiny"
 )
+
+# Initialize model once and cache it
+@lru_cache(maxsize=1)
+def get_whisper_model():
+    """Get or initialize the Whisper model with optimized settings."""
+    return WhisperModel(
+        MODEL_PATH,
+        device="cpu",
+        compute_type="int8",  # Use int8 quantization for efficiency
+        cpu_threads=4  # Adjust based on system
+    )
 
 async def transcribe_audio(audio_file: str) -> str:
     """Transcribe audio using local Whisper tiny model.
@@ -32,28 +45,27 @@ async def transcribe_audio(audio_file: str) -> str:
         return None
     
     try:
-        # Initialize model with optimized settings
-        model = WhisperModel(
-            MODEL_PATH,
-            device="cpu",
-            compute_type="int8",  # Use int8 quantization for efficiency
-            cpu_threads=4  # Adjust based on system
-        )
+        # Get cached model instance
+        model = get_whisper_model()
         
-        # Transcribe with optimized parameters
-        segments, _ = model.transcribe(
-            audio_file,
-            beam_size=5,
-            language="en",
-            condition_on_previous_text=False,
-            no_speech_threshold=0.3,
-            compression_ratio_threshold=2.4,
-            log_prob_threshold=-1.0,
-            vad_filter=True,  # Enable VAD filtering
-            vad_parameters=dict(
-                min_silence_duration_ms=500,
-                speech_pad_ms=400,
-                threshold=0.3
+        # Run transcription in a thread pool to avoid blocking
+        loop = asyncio.get_event_loop()
+        segments, _ = await loop.run_in_executor(
+            None,
+            lambda: model.transcribe(
+                audio_file,
+                beam_size=5,
+                language="en",
+                condition_on_previous_text=False,
+                no_speech_threshold=0.3,
+                compression_ratio_threshold=2.4,
+                log_prob_threshold=-1.0,
+                vad_filter=True,
+                vad_parameters=dict(
+                    min_silence_duration_ms=500,
+                    speech_pad_ms=400,
+                    threshold=0.3
+                )
             )
         )
         

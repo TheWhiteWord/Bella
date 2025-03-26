@@ -1,3 +1,10 @@
+''''
+DEPRECATED
+This is a deprecated version of the app.py file. right now only using terminal
+for interaction.
+Kept for reference.
+'''''
+
 import streamlit as st
 import asyncio
 from utils.csm_tts import CSMSpeechProcessor

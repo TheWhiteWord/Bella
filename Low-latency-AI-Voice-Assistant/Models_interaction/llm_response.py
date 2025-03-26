@@ -74,7 +74,7 @@ async def generate(
     system_prompt: str = "Keep your response short and concise.",
     verbose: bool = False,
     config_path: str = None,
-    timeout: float = 5.0  # Add timeout parameter
+    timeout: float = 15.0
 ) -> Optional[str]:
     """Generate a response using local Ollama model asynchronously.
     
@@ -116,7 +116,6 @@ async def generate(
             )
         )
         
-        # Wait for response with timeout
         try:
             response = await asyncio.wait_for(response_future, timeout=timeout)
         except asyncio.TimeoutError:
@@ -124,12 +123,10 @@ async def generate(
                 print(f"LLM response timed out after {timeout}s")
             return None
         
-        # Clean and process the response
         response_text = clean_response(response['message']['content'].strip())
         
-        if verbose:
+        if verbose and response_text:
             print(f"Response time: {time.time() - start:.2f}s")
-            print(f"Response: {response_text}")
             
         return response_text
         
@@ -139,14 +136,14 @@ async def generate(
             print("Make sure Ollama is running (ollama serve)")
         return None
 
-async def generate_llm_response(user_input: str, history_context: str, model: str = "Gemma3", timeout: float = 5.0) -> str:
+async def generate_llm_response(user_input: str, history_context: str, model: str = "Gemma3", timeout: float = 15.0) -> str:
     """Generate a response using local Ollama model.
     
     Args:
         user_input (str): The user's input text
         history_context (str): Previous conversation history
         model (str): Model nickname from config (e.g., "Gemma3", "hermes8b")
-        timeout (float): Maximum time to wait for response
+        timeout (float): Maximum time to wait for response in seconds
         
     Returns:
         str: Generated response from the model
@@ -159,7 +156,7 @@ async def generate_llm_response(user_input: str, history_context: str, model: st
         prompt=f"Given this conversation history:\n{history_context}\n\nRespond to: {user_input}",
         model=model,
         system_prompt=system_prompt,
-        verbose=True,  # Enable verbose mode to debug
+        verbose=True,
         timeout=timeout
     )
     

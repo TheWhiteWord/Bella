@@ -1,3 +1,7 @@
+'''
+DEPRECATED: This script is deprecated and will be removed in future versions.
+Only kept for reference. Look at folder Audio_recorder for the new test suite.
+'''
 import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))

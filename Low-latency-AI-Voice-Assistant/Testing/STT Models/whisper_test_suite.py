@@ -1,3 +1,8 @@
+'''
+DEPRECATED: This test suite is deprecated and will be removed in future versions.
+Only kept for reference. Look at folder Audio_recorder for the new test suite.
+'''
+
 import asyncio
 import os
 import time

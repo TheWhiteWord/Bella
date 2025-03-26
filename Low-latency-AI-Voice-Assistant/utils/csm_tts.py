@@ -6,6 +6,8 @@ import pygame
 import asyncio
 import torch
 import torchaudio
+import soundfile as sf
+import sounddevice as sd
 from typing import Optional, Tuple, List, Dict
 from pathlib import Path
 from .generator import Generator, load_csm_1b, Segment
@@ -29,62 +31,39 @@ def _check_audio_libraries():
         
     return available_libs
 
-def play_audio(file_path: str):
-    """Play audio using the first available playback method.
+async def play_audio(file_path: str, device_id: Optional[int] = None):
+    """Play audio file using available audio libraries.
     
-    Tries different libraries in order of preference:
-    1. sounddevice (if available)
-    2. simpleaudio (if available)
-    3. pygame (if available)
-    4. command line (as fallback)
+    Args:
+        file_path (str): Path to the audio file to play
+        device_id (int, optional): Output device ID to use
     """
-    available_libs = _check_audio_libraries()
-    
-    if "sounddevice" in available_libs:
+    try:
+        # Try pygame first since it's more reliable
+        pygame.mixer.init()
+        pygame.mixer.music.load(file_path)
+        pygame.mixer.music.play()
+        while pygame.mixer.music.get_busy():
+            await asyncio.sleep(0.1)
+        pygame.mixer.quit()
+        return True
+    except Exception as e:
+        warnings.warn(f"pygame playback failed: {e}")
+        
+        # Fallback to sounddevice
         try:
-            import sounddevice as sd
-            import soundfile as sf
-            data, samplerate = sf.read(file_path)
-            sd.play(data, samplerate)
-            sd.wait()
-            return
+            data, sample_rate = sf.read(file_path)
+            await asyncio.to_thread(
+                sd.play,
+                data,
+                sample_rate,
+                device=device_id,
+                blocking=True
+            )
+            return True
         except Exception as e:
             warnings.warn(f"sounddevice playback failed: {e}")
-    
-    if "simpleaudio" in available_libs:
-        try:
-            import simpleaudio as sa
-            wave_obj = sa.WaveObject.from_wave_file(file_path)
-            play_obj = wave_obj.play()
-            play_obj.wait_done()
-            return
-        except Exception as e:
-            warnings.warn(f"simpleaudio playback failed: {e}")
-    
-    if "pygame" in available_libs:
-        try:
-            import pygame
-            pygame.mixer.init()
-            pygame.mixer.music.load(file_path)
-            pygame.mixer.music.play()
-            while pygame.mixer.music.get_busy():
-                pygame.time.Clock().tick(10)
-            pygame.mixer.quit()
-            return
-        except Exception as e:
-            warnings.warn(f"pygame playback failed: {e}")
-    
-    # Fallback to command line audio players
-    players = ['aplay', 'paplay', 'play']  # Common Linux audio players
-    for player in players:
-        try:
-            if os.system(f"which {player} > /dev/null 2>&1") == 0:
-                os.system(f"{player} {file_path}")
-                return
-        except:
-            continue
-    
-    warnings.warn("No audio playback method available")
+            return False
 
 class VoiceContextManager:
     """Manages the persistent voice context for voice cloning characteristics only."""

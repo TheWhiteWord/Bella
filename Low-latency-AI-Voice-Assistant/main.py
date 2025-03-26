@@ -1,6 +1,7 @@
 import asyncio
 import argparse
 from Models_interaction.audio_session_manager import AudioSessionManager
+from Models_interaction.buffered_recorder import BufferedRecorder, create_audio_stream
 from utils.llm_interaction import generate_llm_response, get_available_models
 from utils.csm_tts import CSMSpeechProcessor, play_audio
 import os
@@ -43,54 +44,96 @@ async def main_interaction_loop(model: str = "Gemma3"):
     conversation_history = []  # Store history of user inputs and assistant responses
     
     try:
-        # Create audio session manager
+        # Create audio session manager with debug mode
         audio_manager = AudioSessionManager(gap_timeout=2.0, debug=True)
+        recorder = BufferedRecorder()
         
-        while True:
-            # Step 1: Start a new audio session and wait for complete utterance
-            print("\nWaiting for voice...")
-            transcribed_text, segments = await audio_manager.start_session()
-            
-            if not transcribed_text:
-                continue
+        # Connect recorder to audio manager
+        audio_manager.set_recorder(recorder)
+        
+        # Create and start the audio stream
+        stream = await create_audio_stream(recorder)
+        
+        with stream:
+            while True:
+                # Ensure recording is fully stopped before starting new interaction
+                recorder.should_stop = True
+                recorder.is_recording = False
+                audio_manager.pause_session()
+                await asyncio.sleep(0.2)  # Give time for everything to stop
+                
+                # Reset states for new interaction
+                recorder.reset_state()
+                audio_manager.resume_session()
+                
+                # Start recording
+                print("\nWaiting for voice...")
+                recorder.should_stop = False
+                recorder.is_recording = True
+                
+                # Wait for complete utterance
+                transcribed_text, segments = await audio_manager.start_session()
+                
+                if not transcribed_text:
+                    continue
 
-            print(f"\nYou said: {transcribed_text}")
+                print(f"\nYou said: {transcribed_text}")
 
-            if any(word in transcribed_text.lower() for word in ['stop', 'exit', 'quit']):
-                print("\nGoodbye!")
-                break
+                if any(word in transcribed_text.lower() for word in ['stop', 'exit', 'quit']):
+                    print("\nGoodbye!")
+                    break
 
-            # Append user input to history
-            conversation_history.append({"User": transcribed_text})
-            
-            # Step 2: Generate a response using local Ollama model
-            print(f"\nThinking... (using {model})")
-            history_context = ' '.join(
-                [f"{key}: {value}" for entry in conversation_history[-3:] for key, value in entry.items()]
-            )
-            response = await generate_llm_response(transcribed_text, history_context, model)
-            print(f"Assistant: {response}")
+                # Fully stop recording while processing response
+                print("\nRecording paused...")
+                recorder.should_stop = True
+                recorder.is_recording = False
+                audio_manager.pause_session()
+                await asyncio.sleep(0.3)  # Give more time to ensure stop
 
-            # Append assistant response to history
-            conversation_history.append({"Assistant": response})
+                # Format conversation history for context
+                history_text = ""
+                for i, entry in enumerate(conversation_history[-3:]):
+                    role = "User" if i % 2 == 0 else "Assistant"
+                    history_text += f"{role}: {entry}\n"
 
-            # Step 3: Convert response to speech and play it
-            print("\nGenerating speech...")
-            audio_file = await tts_engine.convert_text_to_speech(response)
-            
-            if audio_file:
-                print("\nPlaying response...")
-                play_audio(audio_file)
-                # Clean up audio file
-                try:
-                    os.remove(audio_file)
-                except:
-                    pass
-                    
-            print("\n" + "="*50 + "\n")
+                # Generate response using local Ollama model
+                print(f"\nThinking... (using {model})")
+                response = await generate_llm_response(transcribed_text, history_text, model, timeout=15.0)
+                print(f"Assistant: {response}")
+
+                # Update conversation history
+                conversation_history.append(transcribed_text)  # User input
+                conversation_history.append(response)  # Assistant response
+
+                # Convert response to speech and play it
+                print("\nGenerating speech...")
+                audio_file = await tts_engine.convert_text_to_speech(response)
+                
+                if audio_file:
+                    print("\nPlaying response...")
+                    await play_audio(audio_file)
+                    # Clean up audio file
+                    try:
+                        os.remove(audio_file)
+                    except:
+                        pass
+
+                # Only resume recording after response has fully played
+                await asyncio.sleep(0.5)  # Add small delay to prevent cutting off end of response
+                
+                print("\nRecording resumed...")
+                recorder.should_stop = False
+                recorder.is_recording = True
+                audio_manager.resume_session()
+                print("\n" + "="*50)
             
     finally:
-        # Clean up TTS engine
+        # Ensure everything is properly cleaned up
+        recorder.should_stop = True
+        recorder.is_recording = False
+        if 'stream' in locals():
+            stream.stop()
+            stream.close()
         if tts_engine:
             tts_engine.reset_all_contexts()
             del tts_engine
