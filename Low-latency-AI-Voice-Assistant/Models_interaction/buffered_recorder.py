@@ -2,6 +2,10 @@
 Buffered Audio Recorder module with voice activity detection and pre-buffering.
 Provides high-quality audio capture with smooth transitions and proper silence handling.
 Optimized for PipeWire and general audio input.
+This module sole responsability is that to record good audio, and ensure thet voice recognition is achieved, and silence detection.
+This module does not handles the audio session management, which is done by the AudioSessionManager class.
+This module should have a pause and resume function, but it is not used in the current implementation.
+This module is used by the main.py file, which handles the audio session management and the interaction with the LLM.
 """
 import queue
 import webrtcvad
@@ -19,76 +23,58 @@ import time
 
 class BufferedRecorder:
     def __init__(self):
-        # Audio settings
+        # Audio settings optimized for PipeWire
         self.hardware_rate = 44100
         self.channels = 1
         self.dtype = np.float32
-        self.block_size = 256
-        self.frames_per_second = self.hardware_rate / self.block_size  # Moved up
+        self.block_size = 256  # Small block size for low latency
         
-        # Core state management
+        # Pre-buffer and timing settings
+        self.pre_buffer_seconds = 2.0
+        self.warm_up_frames = 50
+        self.is_warmed_up = False
+        self.fade_duration = 0.1
+        self.debounce_time = 0.2
+        
+        # Voice detection settings - Adjusted thresholds
+        self.voice_threshold = 0.02  # Increased to avoid false triggers
+        self.silence_energy_threshold = 0.012  # Adjusted for better silence detection
+        self.spike_threshold = 0.8
+        self.voice_sustain_frames = 15
+        self.min_valid_frames = 3  # Increased to ensure valid voice activity
+        self.valid_frame_count = 0
+        self.last_energies = deque(maxlen=10)
+        
+        # State management
+        self.should_stop = False
         self.is_recording = False
         self.voice_detected = False
-        self.should_stop = False
-        self.is_warmed_up = False
         
-        # Voice detection core settings - Fine-tuned thresholds
-        self.voice_threshold = 0.035
-        self.silence_threshold = 0.015
-        self.spike_threshold = 0.35
-        
-        # Frame management
-        self.frame_count = 0
-        self.current_frame = 0
-        self.warm_up_frames = 50
-        self.min_valid_frames = 6
-        self.valid_frame_count = 0
-        self.max_valid_frames = 12
-        
-        # Voice activity tracking
-        self.total_voice_frames = 0  # Track total frames with voice activity
-        self.min_voice_frames_required = 15  # Minimum frames with voice needed for valid recording
-        self.max_recording_frames = int(30 * self.frames_per_second)  # 30 second limit
-        
-        # Energy tracking
-        self.last_energies = deque(maxlen=30)
-        self.baseline_energy = deque(maxlen=100)
-        self.noise_floor = 0.0
-        
-        # Timing settings - Increased pre-buffer for better sentence capture
-        self.pre_buffer_seconds = 2.8  # Increased from 2.0 to 3.0 seconds
-        self.debounce_time = 0.3
-        self.last_trigger_time = 0
-        self.fade_duration = 0.1
-        
-        # Silence detection - More responsive settings
-        self.silence_timeout = 0.6  # Reduced from original value
+        # Silence detection settings
+        self.silence_timeout = 1.0  # Time in seconds to wait before stopping
         self.consecutive_silence_frames = 0
-        self.silence_frame_threshold = int(self.silence_timeout * self.frames_per_second)
-        self.min_silence_frames = 15  # Reduced from 20
-        self.silence_message_shown = False
-        self.force_completion_time = 8.0  # Force complete after 8 seconds
-        self.recording_start_time = None
+        self.silence_frame_threshold = int(self.silence_timeout * (self.hardware_rate / self.block_size))
+        self.min_silence_frames = 20  # Increased for more stable silence detection
         
         # VAD settings
         self.vad = webrtcvad.Vad(2)
         self.vad_rate = 16000
-        self.vad_frame_length = int(self.vad_rate * 0.03)
-        self.voice_frames_counter = 0
-        self.voice_sustain_frames = 15
+        self.vad_frame_length = int(self.vad_rate * 0.03)  # 30ms frames
         
-        # Buffer management
-        self.max_buffer_size = int(self.pre_buffer_seconds * self.hardware_rate)
+        # Buffer settings
+        self.max_buffer_size = int(self.hardware_rate * 2)  # 2 seconds of audio
         self.audio_buffer = np.zeros(self.max_buffer_size, dtype=self.dtype)
         self.buffer_index = 0
-        self.recording_buffer = []
         
-        # Processing
+        # Processing and recording state
         self.process_queue = queue.Queue()
         self.processing_active = True
-        self.processor_thread = None
+        self.recording_buffer = []
+        self.silence_frames = 0
+        self.current_frame = 0
+        self.frame_count = 0
         
-        # Debug
+        # Debug settings
         self.debug_mode = True
         self.debug_info = {
             'max_energy': 0.0,
@@ -97,14 +83,28 @@ class BufferedRecorder:
             'voice_detections': 0,
             'recording_frames': 0,
             'last_energy': 0.0,
+            'overflow_count': 0,
             'spikes_rejected': 0,
-            'silence_frames': 0,
-            'noise_floor': 0.0
+            'silence_frames': 0
         }
-
-        # Initialize resampler for VAD
-        self.resampler = signal.resample
-
+        
+        # Silence detection
+        self.silence_threshold = 0.02
+        self.silence_timeout = 1.5
+        self.consecutive_silence_frames = 0
+        self.min_speech_frames = 3
+        
+        # Time between triggers
+        self.last_trigger_time = 0
+        
+        # Start processing thread
+        self.processing_thread = threading.Thread(target=self._process_audio_frames)
+        self.processing_thread.daemon = True
+        self.processing_thread.start()
+        
+        # Resampling for VAD
+        self.resampler = signal.resample_poly
+        
     def initialize_audio_settings(self, device_info):
         """Initialize audio settings based on device info"""
         self.hardware_rate = int(device_info['default_samplerate'])
@@ -223,46 +223,13 @@ class BufferedRecorder:
                 print(f"Processing error: {e}", file=sys.stderr)
                 continue
                 
-    def _is_spike(self, frame_energy):
-        """Improved spike detection with context awareness"""
-        if len(self.last_energies) < 5:
-            return frame_energy > self.spike_threshold
-            
-        recent_energies = list(self.last_energies)[-5:]
-        avg_energy = sum(recent_energies) / len(recent_energies)
-        max_recent = max(recent_energies)
-        
-        # Spike conditions:
-        # 1. Current energy is significantly higher than recent average
-        energy_jump = frame_energy > (avg_energy * 3)
-        
-        # 2. Current energy is above spike threshold
-        above_threshold = frame_energy > self.spike_threshold
-        
-        # 3. Check for sudden energy increase
-        gradual_increase = all(
-            recent_energies[i] <= recent_energies[i+1] * 1.5 
-            for i in range(len(recent_energies)-1)
-        )
-        
-        return (energy_jump and above_threshold) and not gradual_increase
-
-    def _update_noise_floor(self, frame_energy):
-        """Dynamically update noise floor estimate with better stability"""
-        self.baseline_energy.append(frame_energy)
-        if len(self.baseline_energy) >= 50:  # Wait for enough samples
-            sorted_energies = sorted(self.baseline_energy)
-            # Use the 15th percentile as noise floor, more stable than 10th
-            self.noise_floor = np.percentile(sorted_energies, 15)
-            # Clamp noise floor to reasonable range
-            self.noise_floor = min(self.noise_floor, 0.1)  # Cap maximum noise floor
-            self.debug_info['noise_floor'] = self.noise_floor
-
     def audio_callback(self, indata, frames, time_info, status):
+        """Lightweight audio callback with improved voice detection"""
         try:
-            # Basic frame management
+            # Increment frame counter
             self.current_frame += 1
             self.frame_count += 1
+            self.debug_info['frame_count'] += 1
             
             # Handle warm-up period
             if not self.is_warmed_up:
@@ -270,123 +237,55 @@ class BufferedRecorder:
                     self.is_warmed_up = True
                     print("\nAudio system warmed up, ready for recording...")
                 return
-                
-            # Process audio frame
+            
+            # Get audio data and calculate energy
             audio_data = indata.flatten().astype(np.float32)
             frame_energy = float(np.sqrt(np.mean(audio_data**2)))
             
-            # Update energy tracking with smoothing
+            # Update energy history and debug stats
             self.last_energies.append(frame_energy)
-            self._update_noise_floor(frame_energy)
+            self.debug_info['max_energy'] = max(self.debug_info['max_energy'], frame_energy)
+            self.debug_info['min_energy'] = min(self.debug_info['min_energy'], frame_energy)
+            self.debug_info['last_energy'] = frame_energy
             
-            # Update debug info
-            self.debug_info.update({
-                'max_energy': max(self.debug_info['max_energy'], frame_energy),
-                'min_energy': min(self.debug_info['min_energy'], frame_energy),
-                'last_energy': frame_energy,
-                'frame_count': self.frame_count
-            })
-            
-            # Enhanced spike detection
-            if self._is_spike(frame_energy):
-                self.debug_info['spikes_rejected'] += 1
-                if self.debug_mode:
-                    print(f"\nRejected spike: {frame_energy:.3f}")
-                return
+            # Voice activity detection
+            if frame_energy > self.voice_threshold:
+                self.consecutive_silence_frames = 0
+                self.valid_frame_count += 1
                 
-            current_time = time.time()
-            
-            # Voice detection logic with improved hysteresis
-            effective_voice_threshold = self.voice_threshold + max(self.noise_floor, 0.005)
-            effective_silence_threshold = self.silence_threshold + max(self.noise_floor, 0.005)
-            
-            # Voice onset detection with better state management
-            if frame_energy > effective_voice_threshold:
-                # Strong voice detected
-                self.consecutive_silence_frames = 0
-                self.valid_frame_count = min(self.valid_frame_count + 2, self.max_valid_frames)
-                if self.is_recording:
-                    self.total_voice_frames += 1
-            elif frame_energy > (effective_voice_threshold * 0.7):
-                # Weak voice detected
-                self.consecutive_silence_frames = 0
-                self.valid_frame_count = min(self.valid_frame_count + 1, self.max_valid_frames)
-                if self.is_recording:
-                    self.total_voice_frames += 1
+                if self.valid_frame_count >= self.min_valid_frames:
+                    if not self.is_recording:
+                        self.voice_detected = True
+                        self.start_recording()
+                        print("\nVoice detected - Starting recording...")
             else:
-                # No voice - decrease counter more quickly
-                self.valid_frame_count = max(0, self.valid_frame_count - 3)
-            
-            # Start recording if we have consistent voice
-            if (self.valid_frame_count >= self.min_valid_frames and 
-                not self.is_recording and 
-                current_time - self.last_trigger_time > self.debounce_time):
-                print("\nVoice detected - Starting recording...")
-                self.voice_detected = True
-                self.start_recording()
-                self.last_trigger_time = current_time
-            
-            # Enhanced silence detection with force completion
-            if self.is_recording:
-                current_time = time.time()
-                recording_duration = current_time - self.recording_start_time if self.recording_start_time else 0
-
-                # Force completion if recording too long
-                if recording_duration > self.force_completion_time:
-                    if self.total_voice_frames >= self.min_voice_frames_required:
-                        print("\nForce completing recording (maximum duration reached)")
-                        self.should_stop = True
-                        return
-                    else:
-                        print("\nDiscarding too long recording with insufficient voice")
-                        self.should_stop = True
-                        self.recording_buffer = []
-                        return
-
-                if frame_energy < effective_silence_threshold:
-                    self.consecutive_silence_frames += 3
-                    if self.consecutive_silence_frames >= self.silence_frame_threshold:
-                        # Only stop if we've had enough voice activity
-                        if self.total_voice_frames >= self.min_voice_frames_required:
-                            if not self.silence_message_shown:
-                                print(f"\nSilence detected ({self.consecutive_silence_frames:.1f} frames)")
-                                self.silence_message_shown = True
-                            self.should_stop = True
-                            return
-                        else:
-                            # Not enough voice activity, reset recording
-                            print("\nNot enough voice activity detected, discarding recording...")
-                            self.should_stop = True
-                            self.recording_buffer = []
-                            return
-                elif frame_energy < (effective_silence_threshold * 1.2):
+                self.valid_frame_count = max(0, self.valid_frame_count - 1)
+                
+                # Silence detection
+                if frame_energy < self.silence_energy_threshold:
                     self.consecutive_silence_frames += 1
+                    if self.consecutive_silence_frames >= self.silence_frame_threshold and self.is_recording:
+                        print(f"\nSilence detected for {self.silence_timeout}s - Stopping recording...")
+                        self.should_stop = True
+                        return
                 else:
-                    self.consecutive_silence_frames = max(0, self.consecutive_silence_frames - 6)
-                    self.silence_message_shown = False
+                    self.consecutive_silence_frames = max(0, self.consecutive_silence_frames - 2)
             
-            # Buffer management
+            # Update circular buffer
             self._update_circular_buffer(audio_data)
             
+            # If recording, store audio
             if self.is_recording:
                 self.recording_buffer.append(audio_data.reshape(-1, 1))
                 self.debug_info['recording_frames'] += 1
             
-            # Visual feedback with voice frame indication
+            # Visual feedback - but not too often
             if self.debug_info['frame_count'] % 2 == 0:
                 if self.is_recording:
-                    indicator = '🎤' if self.valid_frame_count > 0 else 's'
-                    sys.stdout.write(indicator)
+                    sys.stdout.write('🎤')
                 else:
                     sys.stdout.write('.')
                 sys.stdout.flush()
-            
-            # More informative debug output
-            if self.debug_mode and self.debug_info['frame_count'] % 50 == 0:
-                print(f"\nEnergy: {frame_energy:.4f} (Noise: {self.noise_floor:.4f})")
-                print(f"Voice frames: {self.valid_frame_count}/{self.max_valid_frames}")
-                if self.is_recording:
-                    print(f"Silence frames: {self.consecutive_silence_frames:.1f}/{self.silence_frame_threshold}")
                 
         except Exception as e:
             print(f"\nError in callback: {e}", file=sys.stderr)
@@ -463,7 +362,6 @@ class BufferedRecorder:
                     pre_buffer = pre_buffer / max_val * 0.9
             
             self.recording_buffer = [pre_buffer]
-            self.recording_start_time = time.time()
             print("\nRecording started (with pre-buffer)...")
 
     def stop_recording(self):
@@ -495,9 +393,9 @@ class BufferedRecorder:
             # Print audio statistics
             print("\nAudio Statistics:")
             print(f"Audio shape: {audio.shape}")
-            print(f"Raw data range: [{np.min(audio): .6f}, {np.max(audio): .6f}]")
-            print(f"Mean value: {np.mean(audio): .6f}")
-            print(f"RMS level: {np.sqrt(np.mean(audio**2)): .6f}")
+            print(f"Raw data range: [{np.min(audio):.6f}, {np.max(audio):.6f}]")
+            print(f"Mean value: {np.mean(audio):.6f}")
+            print(f"RMS level: {np.sqrt(np.mean(audio**2)):.6f}")
             
             # Normalize audio
             if len(audio) > 0:
@@ -509,7 +407,7 @@ class BufferedRecorder:
                 if max_val > 0:
                     audio = audio / max_val * 0.9
                 
-                print(f"Normalized data range: [{np.min(audio): .6f}, {np.max(audio): .6f}]")
+                print(f"Normalized data range: [{np.min(audio):.6f}, {np.max(audio):.6f}]")
             
             # Save the audio file
             output_dir = os.path.join(

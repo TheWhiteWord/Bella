@@ -7,7 +7,7 @@ async def generate_llm_response(user_input: str, history_context: str, model: st
     Args:
         user_input (str): The user's input text
         history_context (str): Previous conversation history
-        model (str): Model nickname from config (e.g., "hermes8b", "dolphin8b")
+        model (str): Model nickname from config (e.g., "Gemma3", "hermes8b")
         
     Returns:
         str: Generated response from the model
@@ -20,7 +20,7 @@ async def generate_llm_response(user_input: str, history_context: str, model: st
         prompt=f"Given this conversation history:\n{history_context}\n\nRespond to: {user_input}",
         model=model,
         system_prompt=system_prompt,
-        verbose=False
+        verbose=True  # Enable verbose mode to debug
     )
     
     if not response:
@@ -36,9 +36,11 @@ async def get_available_models():
     # Add runtime availability status
     models_status = {}
     for nickname, desc in config_models.items():
+        # Check if either the nickname or the actual model name exists in ollama_models
+        model_exists = any(m.lower().startswith(nickname.lower()) for m in ollama_models)
         models_status[nickname] = {
             'description': desc,
-            'available': any(m in ollama_models for m in [nickname, desc])
+            'available': model_exists
         }
     
     return models_status

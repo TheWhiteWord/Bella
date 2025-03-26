@@ -73,7 +73,8 @@ async def generate(
     model: str = None,
     system_prompt: str = "Keep your response short and concise.",
     verbose: bool = False,
-    config_path: str = None
+    config_path: str = None,
+    timeout: float = 5.0  # Add timeout parameter
 ) -> Optional[str]:
     """Generate a response using local Ollama model asynchronously.
     
@@ -83,6 +84,7 @@ async def generate(
         system_prompt (str): System prompt for setting model behavior
         verbose (bool): Whether to print debug info
         config_path (str): Path to models.yaml config file
+        timeout (float): Maximum time to wait for response in seconds
     
     Returns:
         str: Generated response, or None if there was an error
@@ -101,16 +103,26 @@ async def generate(
             print(f"Parameters: {model_info['parameters']}")
             start = time.time()
         
-        # Generate response using ollama library
-        response = await asyncio.to_thread(
-            ollama.chat,
-            model=model_info['name'],
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": prompt}
-            ],
-            options=model_info['parameters']
+        # Generate response using ollama library with timeout
+        response_future = asyncio.create_task(
+            asyncio.to_thread(
+                ollama.chat,
+                model=model_info['name'],
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": prompt}
+                ],
+                options=model_info['parameters']
+            )
         )
+        
+        # Wait for response with timeout
+        try:
+            response = await asyncio.wait_for(response_future, timeout=timeout)
+        except asyncio.TimeoutError:
+            if verbose:
+                print(f"LLM response timed out after {timeout}s")
+            return None
         
         # Clean and process the response
         response_text = clean_response(response['message']['content'].strip())
@@ -126,6 +138,35 @@ async def generate(
         if "connection" in str(e).lower():
             print("Make sure Ollama is running (ollama serve)")
         return None
+
+async def generate_llm_response(user_input: str, history_context: str, model: str = "Gemma3", timeout: float = 5.0) -> str:
+    """Generate a response using local Ollama model.
+    
+    Args:
+        user_input (str): The user's input text
+        history_context (str): Previous conversation history
+        model (str): Model nickname from config (e.g., "Gemma3", "hermes8b")
+        timeout (float): Maximum time to wait for response
+        
+    Returns:
+        str: Generated response from the model
+    """
+    system_prompt = """You are a helpful voice assistant. Be concise and natural in your responses.
+    Keep responses under 40 words. Focus on being helpful while maintaining a conversational tone.
+    Use complete sentences but be brief. No emotes or special formatting."""
+    
+    response = await generate(
+        prompt=f"Given this conversation history:\n{history_context}\n\nRespond to: {user_input}",
+        model=model,
+        system_prompt=system_prompt,
+        verbose=True,  # Enable verbose mode to debug
+        timeout=timeout
+    )
+    
+    if not response:
+        return "I apologize, but I'm having trouble generating a response right now. Could you try again?"
+    
+    return response
 
 async def list_available_models_from_ollama() -> list:
     """Get list of models directly from Ollama service"""

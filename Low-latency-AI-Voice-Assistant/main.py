@@ -1,102 +1,107 @@
-"""
-Main entry point for the Voice Assistant application.
-Handles the voice recording, transcription, LLM response generation, and text-to-speech conversion.
-"""
-
 import asyncio
 import argparse
+from Models_interaction.audio_session_manager import AudioSessionManager
+from utils.llm_interaction import generate_llm_response, get_available_models
+from utils.csm_tts import CSMSpeechProcessor, play_audio
 import os
-from Models_interaction.faster_whisper_stt_tiny import capture_and_transcribe
-from utils.llm_interaction import generate_llm_response
-from utils.csm_tts import CSMSpeechProcessor
-from utils.csm_tts import play_audio
 
-async def main_interaction_loop():
-    """Main loop for voice assistant interaction.
-    Handles continuous voice input, transcription, LLM response, and speech synthesis.
-    """
-    # Initialize conversation history
-    conversation_history = []
-    
-    # Initialize CSM TTS with Bella's voice
-    reference_audio = os.path.join("clone_files", "bella_edit.mp3")
-    reference_text_path = os.path.join("clone_files", "Bella_transcript.txt")
+async def init_tts_engine():
+    """Initialize the TTS engine with Bella's voice."""
+    # Get paths relative to main.py
+    root_dir = os.path.dirname(__file__)
+    reference_audio = os.path.join(root_dir, "clone_files", "bella_edit.mp3")
+    reference_text_path = os.path.join(root_dir, "clone_files", "Bella_transcript.txt")
     
     with open(reference_text_path, 'r') as f:
         reference_text = f.read().strip()
     
-    tts_engine = CSMSpeechProcessor(
+    return CSMSpeechProcessor(
         reference_audio=reference_audio,
         reference_text=reference_text
     )
+
+async def main_interaction_loop(model: str = "Gemma3"):
+    """Main loop for capturing speech, generating responses, and playing audio.
     
+    Args:
+        model (str): Model nickname for Ollama (default: Gemma3)
+    """
+    print("\nInitializing voice synthesis...")
+    tts_engine = await init_tts_engine()
+    
+    # Print available models
+    models = await get_available_models()
+    print("\nAvailable models:")
+    for model_id, info in models.items():
+        status = "✅" if info['available'] else "❌"
+        print(f"{status} {model_id}: {info['description']}")
+    
+    print(f"\nUsing model: {model}")
     print("\nVoice Assistant ready! Start speaking when ready.")
     print("Say 'stop' or 'exit' to end the conversation.\n")
-    
-    current_buffer = []  # Buffer to accumulate transcribed text
 
-    while True:
-        # Step 1: Capture and transcribe speech with sentence buffering
-        print("Listening...")
-        transcribed_text, is_complete = await capture_and_transcribe(debug=True)
-        
-        if transcribed_text:
-            current_buffer.append(transcribed_text)
-            
-            if is_complete:  # We've detected sufficient silence
-                full_transcription = " ".join(current_buffer)
-                print(f"\nYou said: {full_transcription}")
-                
-                # Check for exit commands
-                if any(word in full_transcription.lower() for word in ['stop', 'exit', 'quit']):
-                    print("\nGoodbye!")
-                    break
-
-                print("\nThinking...")
-                
-                # Get conversation history as context (last 3 exchanges)
-                history_context = ' '.join(
-                    [f"{key}: {value}" for entry in conversation_history[-3:] for key, value in entry.items()]
-                )
-                
-                # Generate response using Gemma3
-                response = await generate_llm_response(
-                    user_input=full_transcription,
-                    history_context=history_context,
-                    model="gemma3"  # Using Gemma3 model specifically
-                )
-                
-                if response:
-                    print(f"Assistant: {response}")
-                    
-                    # Update conversation history
-                    conversation_history.append({
-                        "user": full_transcription,
-                        "assistant": response
-                    })
-                    
-                    # Convert response to speech
-                    try:
-                        audio_file = await tts_engine.convert_text_to_speech(response)
-                        if audio_file:
-                            await play_audio(audio_file)
-                    except Exception as e:
-                        print(f"Error in speech synthesis: {e}")
-                
-                # Clear the buffer after processing
-                current_buffer = []
-            
-        await asyncio.sleep(0.1)  # Small sleep to prevent busy waiting
-
-# Run the main function
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Voice Assistant with CSM TTS")
-    parser.add_argument("--debug", action="store_true", help="Enable debug mode")
-    args = parser.parse_args()
+    conversation_history = []  # Store history of user inputs and assistant responses
     
     try:
-        asyncio.run(main_interaction_loop())
-    except KeyboardInterrupt:
-        print("\nStopping voice assistant...")
-    except Exception as e:
-        print(f"\nError: {e}")
+        # Create audio session manager
+        audio_manager = AudioSessionManager(gap_timeout=2.0, debug=True)
+        
+        while True:
+            # Step 1: Start a new audio session and wait for complete utterance
+            print("\nWaiting for voice...")
+            transcribed_text, segments = await audio_manager.start_session()
+            
+            if not transcribed_text:
+                continue
+
+            print(f"\nYou said: {transcribed_text}")
+
+            if any(word in transcribed_text.lower() for word in ['stop', 'exit', 'quit']):
+                print("\nGoodbye!")
+                break
+
+            # Append user input to history
+            conversation_history.append({"User": transcribed_text})
+            
+            # Step 2: Generate a response using local Ollama model
+            print(f"\nThinking... (using {model})")
+            history_context = ' '.join(
+                [f"{key}: {value}" for entry in conversation_history[-3:] for key, value in entry.items()]
+            )
+            response = await generate_llm_response(transcribed_text, history_context, model)
+            print(f"Assistant: {response}")
+
+            # Append assistant response to history
+            conversation_history.append({"Assistant": response})
+
+            # Step 3: Convert response to speech and play it
+            print("\nGenerating speech...")
+            audio_file = await tts_engine.convert_text_to_speech(response)
+            
+            if audio_file:
+                print("\nPlaying response...")
+                play_audio(audio_file)
+                # Clean up audio file
+                try:
+                    os.remove(audio_file)
+                except:
+                    pass
+                    
+            print("\n" + "="*50 + "\n")
+            
+    finally:
+        # Clean up TTS engine
+        if tts_engine:
+            tts_engine.reset_all_contexts()
+            del tts_engine
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Voice Assistant with Local LLM")
+    parser.add_argument(
+        "--model",
+        default="Gemma3",
+        help="Model to use for responses (e.g., Gemma3, hermes8b, dolphin8b)"
+    )
+    
+    args = parser.parse_args()
+    asyncio.run(main_interaction_loop(args.model))
