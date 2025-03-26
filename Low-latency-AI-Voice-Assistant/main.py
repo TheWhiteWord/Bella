@@ -2,14 +2,12 @@ import asyncio
 import argparse
 from Models_interaction.audio_session_manager import AudioSessionManager
 from Models_interaction.buffered_recorder import BufferedRecorder, create_audio_stream
-from utils.llm_interaction import generate_llm_response, get_available_models
+from Models_interaction.llm_interaction import generate_llm_response, get_available_models
 import os
 from RealtimeTTS import TextToAudioStream, KokoroEngine
-import pygame
 
 async def init_tts_engine():
     """Initialize the TTS engine with Kokoro's voice."""
-    pygame.mixer.init()
     engine = KokoroEngine(voice="Bella")
     stream = TextToAudioStream(engine=engine)
     return stream
@@ -121,7 +119,6 @@ async def main_interaction_loop(model: str = "Gemma3"):
         if 'stream' in locals():
             stream.stop()
             stream.close()
-        pygame.mixer.quit()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Voice Assistant with Local LLM")

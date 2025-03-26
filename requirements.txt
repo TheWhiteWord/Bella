@@ -7,16 +7,12 @@ numpy
 ffmpeg-python
 sounddevice
 soundfile
-pygame
+realtimetts[all]
 faster-whisper      # Speech to text
-moshi>=0.2.2        # Required for CSM
-torchtune==0.4.0
-torchao==0.9.0     
 flash-attn>=2.7.4   # Attention optimization
 bitsandbytes>=0.41.1
-ollama       
-dspy         
-python-dotenv
-asyncio
-pytest 
-webrtcvad
+ollama             # Local LLM
+python-dotenv      # Environment variables
+asyncio            # Async support
+pytest             # Testing framework
+webrtcvad         # Voice activity detection
