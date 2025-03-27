@@ -9,7 +9,7 @@ import time
 from typing import List, Optional, Tuple
 import asyncio
 import os
-from src.whisper.faster_whisper_stt_tiny import transcribe_audio
+from src.audio.whisper.faster_whisper_stt_tiny import transcribe_audio
 
 class AudioSessionManager:
     def __init__(self, gap_timeout: float = 2.0, debug: bool = False):

@@ -1,13 +1,26 @@
-from .llm_response import generate, list_available_models, list_available_models_from_ollama
-import asyncio
+"""Module for managing high-level chat interactions.
 
-async def generate_llm_response(user_input: str, history_context: str, model: str = "Gemma3", timeout: float = 15.0) -> str:
-    """Generate a response using local Ollama model.
+This module provides the main interface for chat interactions,
+handling conversation context and model management.
+"""
+
+import asyncio
+from typing import Dict, Any
+from .config_manager import ModelConfig
+from .ollama_client import generate, list_available_models
+
+async def generate_chat_response(
+    user_input: str, 
+    history_context: str, 
+    model: str = "gemma3_large", 
+    timeout: float = 15.0
+) -> str:
+    """Generate a chat response using local Ollama model.
     
     Args:
         user_input (str): The user's input text
         history_context (str): Previous conversation history
-        model (str): Model nickname from config (e.g., "Gemma3", "hermes8b")
+        model (str): Model nickname from config (e.g., "gemma3_large")
         timeout (float): Maximum time to wait for response in seconds
         
     Returns:
@@ -21,7 +34,7 @@ async def generate_llm_response(user_input: str, history_context: str, model: st
         prompt=f"Given this conversation history:\n{history_context}\n\nRespond to: {user_input}",
         model=model,
         system_prompt=system_prompt,
-        verbose=True,  # Enable verbose mode to debug
+        verbose=True,
         timeout=timeout
     )
     
@@ -30,10 +43,14 @@ async def generate_llm_response(user_input: str, history_context: str, model: st
     
     return response
 
-async def get_available_models():
-    """Get list of available local models and their descriptions, including runtime check"""
-    config_models = list_available_models()
-    ollama_models = await list_available_models_from_ollama()
+async def get_available_models() -> Dict[str, Dict[str, Any]]:
+    """Get list of available local models and their descriptions, including runtime check.
+    
+    Returns:
+        Dict[str, Dict[str, Any]]: Dictionary of model info including availability status
+    """
+    config_models = ModelConfig().list_models()
+    ollama_models = await list_available_models()
     
     # Add runtime availability status
     models_status = {}

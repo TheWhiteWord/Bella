@@ -1,0 +1,21 @@
+models:
+
+  gemma3:
+    name: "Gemma3:latest"
+    description: "Google Gemma with vision capabilities"
+    parameters:
+      temperature: 0.6
+      top_p: 0.9
+      max_tokens: 60
+      repetition_penalty: 1.05
+
+  gemma3_large:
+    name: "PetrosStav/gemma3-tools:12b"
+    description: "Google Gemma with vision capabilities (large)"
+    parameters:
+      temperature: 0.6
+      top_p: 0.9
+      max_tokens: 60
+      repetition_penalty: 1.05
+
+default_model: "gemma3_large"  # Default model to use

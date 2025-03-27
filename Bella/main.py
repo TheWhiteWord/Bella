@@ -16,8 +16,8 @@ sys.path.insert(0, project_root)
 
 from src.utility.audio_session_manager import AudioSessionManager
 from src.utility.buffered_recorder import BufferedRecorder, create_audio_stream
-from src.llm.llm_interaction import generate_llm_response, get_available_models
-from src.kokoro_tts.kokoro_tts import KokoroTTSWrapper
+from src.llm.chat_manager import generate_chat_response, get_available_models
+from src.audio.kokoro_tts.kokoro_tts import KokoroTTSWrapper
 
 def list_audio_devices() -> None:
     """List all available PulseAudio output sinks."""
@@ -61,11 +61,11 @@ async def init_tts_engine(sink_name: Optional[str] = None) -> KokoroTTSWrapper:
         print(f"Error initializing TTS engine: {e}")
         raise
 
-async def main_interaction_loop(model: str = "Gemma3", sink_name: Optional[str] = None) -> None:
+async def main_interaction_loop(model: str = "gemma3", sink_name: Optional[str] = None) -> None:
     """Main loop for capturing speech, generating responses, and playing audio.
     
     Args:
-        model (str): Model nickname for Ollama (default: Gemma3)
+        model (str): Model nickname for Ollama (default: gemma3)
         sink_name (str, optional): Name of PulseAudio sink to use for output
     """
     print("\nInitializing voice assistant components...")
@@ -144,7 +144,7 @@ async def main_interaction_loop(model: str = "Gemma3", sink_name: Optional[str] 
 
                 # Generate response using local Ollama model
                 print(f"\nThinking... (using {model})")
-                response = await generate_llm_response(transcribed_text, history_text, model, timeout=15.0)
+                response = await generate_chat_response(transcribed_text, history_text, model, timeout=15.0)
                 print(f"Assistant: {response}")
 
                 # Update conversation history
