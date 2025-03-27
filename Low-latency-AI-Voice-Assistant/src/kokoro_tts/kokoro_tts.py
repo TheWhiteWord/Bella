@@ -32,6 +32,7 @@ class KokoroTTSWrapper:
         
         # Initialize Kokoro pipeline with English
         self.pipeline = KPipeline(lang_code='a')  # 'a' for American English
+        logger.info("Kokoro pipeline initialized")
         
         # Store settings
         self.default_voice = default_voice
@@ -124,6 +125,10 @@ class KokoroTTSWrapper:
                     
                     await process.wait()
                     os.unlink(temp_wav.name)
+                    
+                # Small pause between segments for natural pacing
+                if i < len(text.split()) - 1:  # Don't pause after last segment
+                    await asyncio.sleep(0.1)
             
         except Exception as e:
             logger.error(f"Error generating speech: {e}")
