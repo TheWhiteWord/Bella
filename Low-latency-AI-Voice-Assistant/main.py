@@ -1,8 +1,14 @@
+"""Main application module for voice assistant with Kokoro TTS integration.
+
+This module coordinates audio recording, speech recognition, LLM interaction,
+and text-to-speech using Kokoro. Uses PipeWire/PulseAudio for audio I/O.
+"""
 import os
 import sys
 import asyncio
 import argparse
-import sounddevice as sd
+import subprocess
+from typing import Dict, Any, Optional, Tuple, List
 
 # Add project root directory to Python path
 project_root = os.path.dirname(os.path.abspath(__file__))
@@ -13,59 +19,75 @@ from src.utility.buffered_recorder import BufferedRecorder, create_audio_stream
 from src.llm.llm_interaction import generate_llm_response, get_available_models
 from src.kokoro_tts.kokoro_tts import KokoroTTSWrapper
 
-def list_audio_devices():
-    """List all available audio output devices."""
-    devices = sd.query_devices()
-    print("\nAvailable audio devices:")
-    for i, dev in enumerate(devices):
-        out_channels = dev['max_output_channels']
-        print(f"{i}: {dev['name']}")
-        print(f"   Outputs: {out_channels}")
+def list_audio_devices() -> None:
+    """List all available PulseAudio output sinks."""
+    print("\nAvailable audio devices (PulseAudio sinks):")
+    try:
+        result = subprocess.run(['pactl', 'list', 'sinks'], 
+                              capture_output=True, text=True, check=True)
+        print("\nFull audio device list:")
+        for line in result.stdout.split('\n'):
+            if any(key in line for key in ['Name:', 'Description:', 'State:']):
+                print(line.strip())
+            elif line.startswith('Sink #'):
+                print(f"\n{line.strip()}")
+    except subprocess.CalledProcessError as e:
+        print(f"Error listing audio devices: {e}")
+        sys.exit(1)
 
-async def init_tts_engine(device_index: int = None):
-    """Initialize the TTS engine with Kokoro's voice.
+async def init_tts_engine(sink_name: Optional[str] = None) -> KokoroTTSWrapper:
+    """Initialize the Kokoro TTS engine.
     
     Args:
-        device_index (int, optional): Index of audio device to use
+        sink_name (str, optional): Name of PulseAudio sink to use
+        
+    Returns:
+        KokoroTTSWrapper: Initialized TTS engine
+        
+    Raises:
+        Exception: If TTS engine initialization fails
     """
-    print("Initializing TTS engine...")
-    engine = KokoroTTSWrapper(
-        default_voice="af_heart",
-        speed=0.9,  # Slightly slower for better clarity
-        device_index=device_index
-    )
-    # Wait for engine to fully initialize
-    await asyncio.sleep(1)
-    return engine
+    print("\nInitializing Kokoro TTS engine...")
+    try:
+        engine = KokoroTTSWrapper(
+            default_voice="af_heart",
+            speed=0.9,  # Slightly slower for better clarity
+            sink_name=sink_name
+        )
+        # Test TTS engine with a short message
+        await engine.generate_speech("TTS system initialized.")
+        return engine
+    except Exception as e:
+        print(f"Error initializing TTS engine: {e}")
+        raise
 
-async def main_interaction_loop(model: str = "Gemma3", device_index: int = None):
+async def main_interaction_loop(model: str = "Gemma3", sink_name: Optional[str] = None) -> None:
     """Main loop for capturing speech, generating responses, and playing audio.
     
     Args:
         model (str): Model nickname for Ollama (default: Gemma3)
-        device_index (int, optional): Index of audio device to use
+        sink_name (str, optional): Name of PulseAudio sink to use for output
     """
-    print("\nInitializing voice synthesis...")
+    print("\nInitializing voice assistant components...")
+    tts_engine = None
+    recorder = None
+    
     try:
-        tts_engine = await init_tts_engine(device_index)
-    except Exception as e:
-        print(f"\nError initializing TTS engine: {e}")
-        return
-    
-    # Print available models
-    models = await get_available_models()
-    print("\nAvailable models:")
-    for model_id, info in models.items():
-        status = "✅" if info['available'] else "❌"
-        print(f"{status} {model_id}: {info['description']}")
-    
-    print(f"\nUsing model: {model}")
-    print("\nVoice Assistant ready! Start speaking when ready.")
-    print("Say 'stop' or 'exit' to end the conversation.\n")
+        tts_engine = await init_tts_engine(sink_name)
+        
+        # Print available models
+        models = await get_available_models()
+        print("\nAvailable models:")
+        for model_id, info in models.items():
+            status = "✅" if info['available'] else "❌"
+            print(f"{status} {model_id}: {info['description']}")
+        
+        print(f"\nUsing model: {model}")
+        await tts_engine.generate_speech("Voice Assistant ready! Start speaking when ready.")
+        print("\nSay 'stop' or 'exit' to end the conversation.\n")
 
-    conversation_history = []  # Store history of user inputs and assistant responses
-    
-    try:
+        conversation_history = []  # Store history of user inputs and assistant responses
+        
         # Create audio session manager with debug mode
         audio_manager = AudioSessionManager(gap_timeout=2.0, debug=True)
         recorder = BufferedRecorder()
@@ -73,16 +95,17 @@ async def main_interaction_loop(model: str = "Gemma3", device_index: int = None)
         # Connect recorder to audio manager
         audio_manager.set_recorder(recorder)
         
-        # Create and start the audio stream
-        stream = await create_audio_stream(recorder)
+        # Initialize audio settings
+        recorder.initialize_audio_settings()
         
-        with stream:
-            while True:
+        while True:
+            try:
                 # Ensure recording is fully stopped before starting new interaction
-                recorder.should_stop = True
-                recorder.is_recording = False
-                audio_manager.pause_session()
-                await asyncio.sleep(0.2)  # Give time for everything to stop
+                if recorder.is_recording:
+                    recorder.should_stop = True
+                    recorder.is_recording = False
+                    audio_manager.pause_session()
+                    await asyncio.sleep(0.2)  # Give time for everything to stop
                 
                 # Reset states for new interaction
                 recorder.reset_state()
@@ -91,18 +114,19 @@ async def main_interaction_loop(model: str = "Gemma3", device_index: int = None)
                 # Start recording
                 print("\nWaiting for voice...")
                 recorder.should_stop = False
-                recorder.is_recording = True
+                recorder.start_recording()
                 
                 # Wait for complete utterance
                 transcribed_text, segments = await audio_manager.start_session()
                 
                 if not transcribed_text:
+                    print("\nNo speech detected, continuing...")
                     continue
 
                 print(f"\nYou said: {transcribed_text}")
 
                 if any(word in transcribed_text.lower() for word in ['stop', 'exit', 'quit']):
-                    print("\nGoodbye!")
+                    await tts_engine.generate_speech("Goodbye!")
                     break
 
                 # Fully stop recording while processing response
@@ -133,28 +157,37 @@ async def main_interaction_loop(model: str = "Gemma3", device_index: int = None)
                     await tts_engine.generate_speech(response)
                 except Exception as e:
                     print(f"\nError during speech generation: {e}")
-                    continue  # Skip to next iteration if TTS fails
+                    continue
 
                 # Only resume recording after response has fully played
-                await asyncio.sleep(1.0)  # Increased delay to ensure audio completion
+                await asyncio.sleep(0.5)  # Reduced delay since Kokoro handles timing
                 
                 print("\nRecording resumed...")
                 recorder.should_stop = False
-                recorder.is_recording = True
+                recorder.start_recording()
                 audio_manager.resume_session()
                 print("\n" + "="*50)
+                
+            except Exception as e:
+                print(f"\nError in interaction loop: {e}")
+                await asyncio.sleep(1)
+                continue
             
+    except Exception as e:
+        print(f"\nFatal error in main loop: {e}")
+        
     finally:
         # Ensure everything is properly cleaned up
-        recorder.should_stop = True
-        recorder.is_recording = False
-        if 'stream' in locals():
-            stream.stop()
-            stream.close()
-        tts_engine.stop()
+        print("\nCleaning up...")
+        if recorder:
+            recorder.should_stop = True
+            recorder.is_recording = False
+            recorder.stop_recording()
+        if tts_engine:
+            tts_engine.stop()
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Voice Assistant with Local LLM")
+    parser = argparse.ArgumentParser(description="Voice Assistant with Local LLM and Kokoro TTS")
     parser.add_argument(
         "--model",
         default="Gemma3",
@@ -166,15 +199,21 @@ if __name__ == "__main__":
         help="List available audio devices and exit"
     )
     parser.add_argument(
-        "--device",
-        type=int,
-        help="Index of audio output device to use"
+        "--sink",
+        type=str,
+        help="Name of PulseAudio sink to use"
     )
     
     args = parser.parse_args()
     
-    if args.list_devices:
-        list_audio_devices()
-        sys.exit(0)
-        
-    asyncio.run(main_interaction_loop(args.model, args.device))
+    try:
+        if args.list_devices:
+            list_audio_devices()
+            sys.exit(0)
+            
+        asyncio.run(main_interaction_loop(args.model, args.sink))
+    except KeyboardInterrupt:
+        print("\nStopped by user.")
+    except Exception as e:
+        print(f"\nFatal error: {e}")
+        sys.exit(1)

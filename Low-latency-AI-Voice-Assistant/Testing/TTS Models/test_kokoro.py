@@ -1,8 +1,25 @@
-"""Test script for Kokoro TTS integration."""
+"""Test script for Kokoro TTS integration.
+
+This test script verifies the Kokoro TTS functionality using PipeWire/PulseAudio for audio output.
+Does NOT use PortAudio - all audio playback is handled through PipeWire's PulseAudio compatibility
+layer using paplay and pactl commands.
+
+Requirements:
+    - Python packages:
+        - kokoro>=0.9.2
+        - misaki[en]
+        - numpy
+    - System dependencies:
+        - PipeWire/PulseAudio (for audio output)
+            - paplay command
+            - pactl command
+        - espeak-ng (for fallback and non-English languages)
+"""
 import os
 import sys
 import asyncio
 import argparse
+import subprocess
 
 # Add project root to path
 project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
@@ -10,18 +27,18 @@ sys.path.insert(0, project_root)
 
 from src.kokoro_tts.kokoro_tts import KokoroTTSWrapper
 
-async def test_tts(device_index: int = None):
+async def test_tts(sink_name: str = None):
     """Test Kokoro TTS functionality.
     
     Args:
-        device_index (int, optional): Audio device index to use
+        sink_name (str, optional): PulseAudio sink name to use
     """
     print("\n=== Testing Kokoro TTS ===")
     
     try:
         # Initialize TTS engine
         print("\nInitializing TTS engine...")
-        tts = KokoroTTSWrapper(device_index=device_index)
+        tts = KokoroTTSWrapper(sink_name=sink_name)
         
         # Test with sample text
         test_text = "Hello! This is a test of the Kokoro text-to-speech system."
@@ -38,17 +55,20 @@ async def test_tts(device_index: int = None):
             tts.stop()
 
 def list_audio_devices():
-    """List available audio output devices."""
-    import sounddevice as sd
-    
-    print("\nAvailable audio devices:")
-    devices = sd.query_devices()
-    for i, dev in enumerate(devices):
-        out_channels = dev['max_output_channels']
-        if out_channels > 0:  # Only show output devices
-            print(f"{i}: {dev['name']}")
-            print(f"   Outputs: {out_channels}")
-            print(f"   Sample rates: {dev['default_samplerate']}")
+    """List available PulseAudio output sinks."""
+    print("\nAvailable audio output devices (PulseAudio sinks):")
+    try:
+        result = subprocess.run(['pactl', 'list', 'sinks'], 
+                              capture_output=True, text=True, check=True)
+        print("\nFull audio device list:")
+        for line in result.stdout.split('\n'):
+            if any(key in line for key in ['Name:', 'Description:', 'State:']):
+                print(line.strip())
+            elif line.startswith('Sink #'):
+                print(f"\n{line.strip()}")
+    except subprocess.CalledProcessError as e:
+        print(f"Error listing audio devices: {e}")
+        sys.exit(1)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Test Kokoro TTS integration")
@@ -58,9 +78,9 @@ if __name__ == "__main__":
         help="List available audio devices and exit"
     )
     parser.add_argument(
-        "--device",
-        type=int,
-        help="Index of audio output device to use"
+        "--sink",
+        type=str,
+        help="Name of PulseAudio sink to use"
     )
     
     args = parser.parse_args()
@@ -69,4 +89,4 @@ if __name__ == "__main__":
         list_audio_devices()
         sys.exit(0)
         
-    asyncio.run(test_tts(args.device))
+    asyncio.run(test_tts(args.sink))

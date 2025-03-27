@@ -3,11 +3,12 @@
 - **Python Version:** Python 3.10+
 - **Testing Framework:** `pytest`
 - **Documentation:** Google style docstring
-- **Environment Management:** `conda` , `conda activate sesame-env`
+- **Environment Management:** `conda` , `conda activate chatbot`
 - **Asynchronous Programming:** Prefer `async` and `await`
 - **LLM Framework:**`transformers`
 - **Data Processing:**`numpy`, `pandas`
 - **Version Control:** `git`
+- ****WE CAN NOT USE PORTAUDIO!!!**
 
 # Coding Guidelines
 
