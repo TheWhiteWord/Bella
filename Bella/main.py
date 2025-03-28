@@ -9,6 +9,7 @@ import asyncio
 import argparse
 import subprocess
 from typing import Dict, Any, Optional, Tuple, List
+import re
 
 # Add project root directory to Python path
 project_root = os.path.dirname(os.path.abspath(__file__))
@@ -16,9 +17,10 @@ sys.path.insert(0, project_root)
 
 from src.utility.audio_session_manager import AudioSessionManager
 from src.utility.buffered_recorder import BufferedRecorder, create_audio_stream
-from src.llm.chat_manager import generate_chat_response, get_available_models
+from src.llm.chat_manager import generate_chat_response, get_available_models, format_search_response
 from src.audio.kokoro_tts.kokoro_tts import KokoroTTSWrapper
 from src.llm.config_manager import ModelConfig
+from src.agents.search_agent import SearchAgent
 
 def list_audio_devices() -> None:
     """List all available PulseAudio output sinks."""
@@ -152,6 +154,23 @@ async def main_interaction_loop(model: str = None, sink_name: Optional[str] = No
                 print(f"\nThinking... (using {model})")
                 response = await generate_chat_response(transcribed_text, history_text, model, timeout=15.0)
                 print(f"Assistant: {response}")
+                
+                # Check if this is a search acknowledgment
+                if "[SEARCH_INITIATED]" in response:
+                    # Extract and speak the acknowledgment
+                    acknowledgment = response.split("[SEARCH_INITIATED]")[0].strip()
+                    print(f"Assistant: {acknowledgment}")
+                    await tts_engine.generate_speech(acknowledgment)
+                    
+                    # Extract the search query and perform the search
+                    search_query = re.sub(r'^(?:search|look up|find|tell me about)\s+(?:for|about)?\s*', '', transcribed_text, flags=re.IGNORECASE)
+                    search_agent = SearchAgent(model=model)
+                    research_results = await search_agent.research_topic(search_query)
+                    
+                    # Format results conversationally
+                    response = await format_search_response(research_results)
+                else:
+                    print(f"Assistant: {response}")
 
                 # Update conversation history
                 conversation_history.append(transcribed_text)  # User input
