@@ -44,6 +44,8 @@ venv.bak/
 *.bin
 *.safetensors
 *.gguf
+Bella/models/*
+!Bella/models/download_whisper_models.py
 models/**/snapshots/
 models/**/blobs/
 models/**/*.index.json
