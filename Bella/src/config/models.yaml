@@ -6,16 +6,32 @@ models:
     parameters:
       temperature: 0.6
       top_p: 0.9
-      max_tokens: 60
+      max_tokens: 100
       repetition_penalty: 1.05
 
-  gemma3_large:
-    name: "PetrosStav/gemma3-tools:12b"
-    description: "Google Gemma with vision capabilities (large)"
+#MODELS TO TEST:
+
+  Nemo:
+    name: "Nemo:latest"
+    description: "Uncensored model, rp fine tuned, with tool use"
     parameters:
-      temperature: 0.6
-      top_p: 0.9
-      max_tokens: 60
+      temperature: 0.7
+      top_p: 0.95
+      top_k: 40
+      repeat_penalty: 1.05
+      min_p: 0.05
+      max_tokens: 100
       repetition_penalty: 1.05
 
-default_model: "gemma3_large"  # Default model to use
+  Lexi:
+    name: "Lexi:latest"
+    description: "Uncensored model, with tool use"
+    parameters:
+      temperature: 0.8
+      top_p: 0.9
+      top_k: 40
+      repeat_penalty: 1.15
+      max_tokens: 100
+      min_p: 0.05
+
+default_model: "Lexi"  # Default model to use

@@ -44,7 +44,7 @@ def clean_response(text: str) -> str:
 async def generate(
     prompt: str,
     model: str = None,
-    system_prompt: str = "Keep your response short and concise.",
+    system_prompt: str = None,
     verbose: bool = False,
     config_path: str = None,
     timeout: float = 15.0
@@ -52,55 +52,92 @@ async def generate(
     """Generate a response using local Ollama model asynchronously.
     
     Args:
-        prompt (str): The input text to generate a response for
-        model (str): Model nickname from config
-        system_prompt (str): System prompt for setting model behavior
-        verbose (bool): Whether to print debug info
-        config_path (str): Path to models.yaml config file
-        timeout (float): Maximum time to wait for response in seconds
-    
+        prompt (str): The user prompt to generate a response for
+        model (str, optional): Model nickname from config. If None, uses default model
+        system_prompt (str, optional): System prompt that defines AI behavior. Required
+        verbose (bool, optional): Whether to print debug information
+        config_path (str, optional): Path to models.yaml config file
+        timeout (float, optional): Timeout in seconds for generation
+        
     Returns:
-        str: Generated response, or None if there was an error
+        Optional[str]: Generated response or None if generation failed
     """
     try:
+        if not system_prompt:
+            raise ValueError("system_prompt is required")
+            
         # Load model config
         model_config = ModelConfig(config_path)
         if not model:
             model = model_config.get_default_model()
+            print(f"Using default model: {model}")
             
         model_info = model_config.get_model_config(model)
+        if not model_info:
+            print(f"No configuration found for model: {model}")
+            return None
+            
+        actual_model_name = model_info['name']
         
+        # Check if model is actually available in Ollama
+        available_models = await list_available_models()
+        if not available_models:
+            print("Failed to get list of available models from Ollama")
+            return None
+            
+        print(f"\n=== Model Configuration ===")
+        print(f"Requested model: {model}")
+        print(f"Model config found: {bool(model_info)}")
+        print(f"Actual model name: {actual_model_name}")
+        print(f"Available models: {available_models}")
+        print(f"Model available: {actual_model_name in available_models}")
+        print(f"Parameters: {model_info.get('parameters', {})}")
+        print("========================\n")
+        
+        if actual_model_name not in available_models:
+            print(f"Model {actual_model_name} is not available in Ollama")
+            return None
+            
         if verbose:
-            print(f"\nGenerating response with Ollama ({model})")
-            print(f"Model: {model_info['name']}")
+            print(f"\nGenerating response with Ollama")
+            print(f"Model nickname: {model}")
+            print(f"Actual model name: {actual_model_name}")
             print(f"Parameters: {model_info['parameters']}")
             
         # Generate response using ollama library with timeout
-        response_future = asyncio.create_task(
-            asyncio.to_thread(
-                ollama.chat,
-                model=model_info['name'],
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": prompt}
-                ],
-                options=model_info['parameters']
-            )
-        )
-        
         try:
+            response_future = asyncio.create_task(
+                asyncio.to_thread(
+                    ollama.chat,
+                    model=actual_model_name,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": prompt}
+                    ],
+                    options=model_info.get('parameters', {})
+                )
+            )
+            
             response = await asyncio.wait_for(response_future, timeout=timeout)
+            
+            if not response or 'message' not in response:
+                if verbose:
+                    print("Received empty or invalid response from Ollama")
+                return None
+                
+            response_text = clean_response(response['message']['content'].strip())
+            return response_text
+            
         except asyncio.TimeoutError:
             if verbose:
                 print(f"LLM response timed out after {timeout}s")
             return None
-        
-        response_text = clean_response(response['message']['content'].strip())
             
-        return response_text
-        
     except Exception as e:
         print(f"Error generating response: {str(e)}")
+        print(f"Attempted to use model nickname: {model}")
+        if 'model_info' in locals():
+            print(f"Model info: {model_info}")
         if "connection" in str(e).lower():
             print("Make sure Ollama is running (ollama serve)")
         return None

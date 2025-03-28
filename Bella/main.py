@@ -18,6 +18,7 @@ from src.utility.audio_session_manager import AudioSessionManager
 from src.utility.buffered_recorder import BufferedRecorder, create_audio_stream
 from src.llm.chat_manager import generate_chat_response, get_available_models
 from src.audio.kokoro_tts.kokoro_tts import KokoroTTSWrapper
+from src.llm.config_manager import ModelConfig
 
 def list_audio_devices() -> None:
     """List all available PulseAudio output sinks."""
@@ -50,7 +51,7 @@ async def init_tts_engine(sink_name: Optional[str] = None) -> KokoroTTSWrapper:
     print("\nInitializing Kokoro TTS engine...")
     try:
         engine = KokoroTTSWrapper(
-            default_voice="af_heart",
+            default_voice="af_bella",
             speed=0.9,  # Slightly slower for better clarity
             sink_name=sink_name
         )
@@ -61,11 +62,11 @@ async def init_tts_engine(sink_name: Optional[str] = None) -> KokoroTTSWrapper:
         print(f"Error initializing TTS engine: {e}")
         raise
 
-async def main_interaction_loop(model: str = "gemma3", sink_name: Optional[str] = None) -> None:
+async def main_interaction_loop(model: str = None, sink_name: Optional[str] = None) -> None:
     """Main loop for capturing speech, generating responses, and playing audio.
     
     Args:
-        model (str): Model nickname for Ollama (default: gemma3)
+        model (str, optional): Model nickname for Ollama. If None, uses default from config
         sink_name (str, optional): Name of PulseAudio sink to use for output
     """
     print("\nInitializing voice assistant components...")
@@ -73,6 +74,11 @@ async def main_interaction_loop(model: str = "gemma3", sink_name: Optional[str] 
     recorder = None
     
     try:
+        # Get model from config if not specified
+        if model is None:
+            model_config = ModelConfig()
+            model = model_config.get_default_model()
+            
         tts_engine = await init_tts_engine(sink_name)
         
         # Print available models
@@ -125,7 +131,7 @@ async def main_interaction_loop(model: str = "gemma3", sink_name: Optional[str] 
 
                 print(f"\nYou said: {transcribed_text}")
 
-                if any(word in transcribed_text.lower() for word in ['stop', 'exit', 'quit']):
+                if any(word in transcribed_text.lower() for word in ['exit', 'quit']):
                     await tts_engine.generate_speech("Goodbye!")
                     break
 
@@ -190,8 +196,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Voice Assistant with Local LLM and Kokoro TTS")
     parser.add_argument(
         "--model",
-        default="Gemma3",
-        help="Model to use for responses (e.g., Gemma3, hermes8b, dolphin8b)"
+        default=None,
+        help="Model to use for responses. If not specified, uses default from config"
     )
     parser.add_argument(
         "--list-devices",

@@ -31,14 +31,14 @@ class KokoroTTSWrapper:
     
     def __init__(self, 
                  model_path: str = None,
-                 default_voice: str = "af_heart",
+                 default_voice: str = "af_bella",
                  speed: float = 0.9,
                  sink_name: str = None):
         """Initialize Kokoro TTS with specified settings.
         
         Args:
             model_path (str, optional): Path to Kokoro model. If None, uses default path
-            default_voice (str): Voice ID to use (default: "af_heart")
+            default_voice (str): Voice ID to use (default: "af_bella")
             speed (float): Speech speed multiplier (default: 0.9)
             sink_name (str, optional): Name of PulseAudio sink to use for output
         """

@@ -2,6 +2,36 @@ import asyncio
 import ollama
 import time
 from typing import Optional, Dict, Any
+from datetime import datetime
+from pathlib import Path
+import os
+
+def save_test_results(results: list[Dict[str, Any]]):
+    """Save test results to a markdown file"""
+    results_dir = Path("Bella/results/model_evaluations")
+    results_dir.mkdir(parents=True, exist_ok=True)
+    
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_file = results_dir / f"ollama_test_{timestamp}.md"
+    
+    with open(output_file, "w", encoding="utf-8") as f:
+        f.write("# Ollama Integration Test Results\n\n")
+        f.write(f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+        
+        for result in results:
+            f.write(f"## Test Case: {result['test_name']}\n")
+            f.write(f"Model: {result['model']}\n")
+            f.write(f"Prompt: {result['prompt']}\n")
+            if 'response' in result:
+                f.write(f"Response: {result['response']}\n")
+            if 'time' in result:
+                f.write(f"Generation time: {result['time']:.2f}s\n")
+            if 'error' in result:
+                f.write(f"Error: {result['error']}\n")
+            f.write("\n")
+    
+    print(f"\nTest results saved to: {output_file}")
+    return output_file
 
 async def test_ollama_connection() -> bool:
     """Test if Ollama service is running and accessible"""
@@ -48,19 +78,42 @@ async def test_model_response(
         
         print(f"Response: {response['message']['content']}")
         print(f"Generation time: {generation_time:.2f} seconds")
-        return response
+        
+        return {
+            "test_name": "Basic Response Generation",
+            "model": model,
+            "prompt": test_prompt,
+            "response": response['message']['content'],
+            "time": generation_time
+        }
         
     except Exception as e:
         print(f"Error testing {model}: {e}")
         print(f"Make sure the model '{model}' is available in Ollama")
-        return None
+        return {
+            "test_name": "Basic Response Generation",
+            "model": model,
+            "prompt": test_prompt,
+            "error": str(e)
+        }
 
 async def run_test_suite():
     """Run a series of tests for Ollama integration"""
     print("Starting Ollama integration tests...")
     
+    results = []
+    
     # Test 1: Connection
-    if not await test_ollama_connection():
+    connection_result = await test_ollama_connection()
+    results.append({
+        "test_name": "Connection Test",
+        "model": "N/A",
+        "prompt": "N/A",
+        "response": "Success" if connection_result else "Failed"
+    })
+    
+    if not connection_result:
+        save_test_results(results)
         return
     
     # Test 2: Basic response generation with models from our config
@@ -79,8 +132,13 @@ async def run_test_suite():
     
     for test in test_cases:
         print("\n" + "="*50)
-        await test_model_response(**test)
+        result = await test_model_response(**test)
+        if result:
+            results.append(result)
         print("="*50)
+    
+    # Save all results
+    save_test_results(results)
 
 if __name__ == "__main__":
     asyncio.run(run_test_suite())

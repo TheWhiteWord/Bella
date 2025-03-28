@@ -30,7 +30,7 @@ class BufferedRecorder:
         self.fade_duration = 0.1
         
         # Voice detection settings
-        self.voice_threshold = 0.15
+        self.voice_threshold = 0.12
         self.initial_voice_threshold = 0.12
         self.silence_energy_threshold = 0.03
         self.min_valid_frames = 5
@@ -61,7 +61,12 @@ class BufferedRecorder:
         
         # Last recording tracking
         self.last_recording = None
-        self.debug_mode = True
+        self.debug_mode = False  # Default to False
+        self.debug_dir = os.path.join(
+            os.path.dirname(os.path.dirname(__file__)),
+            "debug",
+            "audio files"
+        )  # Default debug directory
 
     def start_recording(self):
         """Start recording with pre-buffer content and smooth transition"""
@@ -190,16 +195,6 @@ class BufferedRecorder:
                 # Combine all audio chunks
                 audio = np.concatenate(self.recording_buffer)
                 
-                # Save the audio file
-                output_dir = os.path.join(
-                    os.path.dirname(os.path.dirname(__file__)),
-                    "Testing",
-                    "audio files"
-                )
-                os.makedirs(output_dir, exist_ok=True)
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                filename = os.path.join(output_dir, f"recording_{timestamp}.wav")
-                
                 duration = len(audio) / self.sample_rate
                 if duration < 0.1:  # Skip very short recordings
                     print("Recording too short.")
@@ -212,22 +207,46 @@ class BufferedRecorder:
                 if max_val > 0:
                     audio = audio / max_val * 0.9
                 
-                # Save as 16-bit PCM WAV file
+                # Convert to 16-bit PCM
                 audio_int16 = (audio * 32767).astype(np.int16)
+                
+                # Create temporary file for processing
+                temp_file = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+                filename = temp_file.name
+                self.temp_file = temp_file  # Store reference for cleanup
+                
+                # If debug mode is enabled, also save a debug copy
+                if self.debug_mode:
+                    os.makedirs(self.debug_dir, exist_ok=True)
+                    debug_filename = os.path.join(
+                        self.debug_dir,
+                        f"recording_{datetime.now().strftime('%Y%m%d_%H%M%S')}.wav"
+                    )
+                    # Save debug copy
+                    with wave.open(debug_filename, 'wb') as wf:
+                        wf.setnchannels(1)
+                        wf.setsampwidth(2)
+                        wf.setframerate(self.sample_rate)
+                        wf.writeframes(audio_int16.tobytes())
+                    if self.debug_mode:
+                        print(f"\nSaved debug file: {debug_filename}")
+                
+                # Save the temporary file
                 with wave.open(filename, 'wb') as wf:
                     wf.setnchannels(1)
                     wf.setsampwidth(2)
                     wf.setframerate(self.sample_rate)
                     wf.writeframes(audio_int16.tobytes())
                 
-                print(f"\nRecorded {duration:.1f}s of audio.")
-                print(f"Audio saved to: {filename}")
+                if self.debug_mode:
+                    print(f"\nRecorded {duration:.1f}s of audio.")
+                    print(f"Temp file created at: {filename}")
                 
                 # Store the last recording path before reset
                 self.last_recording = filename
                 
-                # Reset recording state but preserve last_recording
-                self.reset_state()
+                # Reset recording state but preserve last_recording and temp_file
+                self.reset_state(preserve_temp=True)
                 
                 return filename
             else:
@@ -241,7 +260,7 @@ class BufferedRecorder:
             self.reset_state()
             return None
 
-    def reset_state(self):
+    def reset_state(self, preserve_temp=False):
         """Reset all state variables to their initial values"""
         self.is_recording = False
         self.voice_detected = False
@@ -256,12 +275,13 @@ class BufferedRecorder:
             except:
                 pass
             self.recording_process = None
-        if self.temp_file:
+        if not preserve_temp and self.temp_file:
             try:
                 os.unlink(self.temp_file.name)
             except:
                 pass
             self.temp_file = None
+            self.last_recording = None
 
     def initialize_audio_settings(self, device_info=None):
         """Initialize audio settings"""

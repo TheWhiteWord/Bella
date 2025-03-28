@@ -6,42 +6,44 @@ handling conversation context and model management.
 
 import asyncio
 from typing import Dict, Any
-from .config_manager import ModelConfig
+from .config_manager import ModelConfig, PromptConfig
 from .ollama_client import generate, list_available_models
 
 async def generate_chat_response(
     user_input: str, 
     history_context: str, 
-    model: str = "gemma3_large", 
+    model: str = "Lexi", 
     timeout: float = 15.0
 ) -> str:
-    """Generate a chat response using local Ollama model.
-    
-    Args:
-        user_input (str): The user's input text
-        history_context (str): Previous conversation history
-        model (str): Model nickname from config (e.g., "gemma3_large")
-        timeout (float): Maximum time to wait for response in seconds
+    """Generate a chat response using local Ollama model."""
+    try:
+        # Load system prompt from config
+        prompt_config = PromptConfig()
+        system_prompt = prompt_config.get_system_prompt()
         
-    Returns:
-        str: Generated response from the model
-    """
-    system_prompt = """You are a helpful voice assistant. Be concise and natural in your responses.
-    Keep responses under 40 words. Focus on being helpful while maintaining a conversational tone.
-    Use complete sentences but be brief. No emotes or special formatting."""
-    
-    response = await generate(
-        prompt=f"Given this conversation history:\n{history_context}\n\nRespond to: {user_input}",
-        model=model,
-        system_prompt=system_prompt,
-        verbose=True,
-        timeout=timeout
-    )
-    
-    if not response:
-        return "I apologize, but I'm having trouble generating a response. Please make sure Ollama is running."
-    
-    return response
+        print(f"Attempting to use model: {model}")  # Debug line
+        
+        response = await generate(
+            prompt=f"Given this conversation history:\n{history_context}\n\nRespond to: {user_input}",
+            model=model,
+            system_prompt=system_prompt,
+            verbose=True,  # Enable verbose output
+            timeout=timeout
+        )
+        
+        if not response:
+            # Check if model exists in config
+            model_config = ModelConfig()
+            model_info = model_config.get_model_config(model)
+            if not model_info:
+                return f"Model '{model}' not found in configuration. Please check models.yaml."
+            return "I apologize, but I'm having trouble generating a response. Please make sure Ollama is running."
+        
+        return response
+        
+    except Exception as e:
+        print(f"Error in generate_chat_response: {str(e)}")
+        return "An error occurred while generating the response."
 
 async def get_available_models() -> Dict[str, Dict[str, Any]]:
     """Get list of available local models and their descriptions, including runtime check.
