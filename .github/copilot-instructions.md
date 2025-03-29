@@ -3,7 +3,7 @@
 - **Python Version:** Python 3.10+
 - **Testing Framework:** `pytest`
 - **Documentation:** Google style docstring
-- **Environment Management:** `conda` , `conda activate chatbot`
+- **Environment Management:** `conda` , `conda activate bella`
 - **Asynchronous Programming:** Prefer `async` and `await`
 - **LLM Framework:**`transformers`
 - **Data Processing:**`numpy`, `pandas`

@@ -44,8 +44,8 @@ venv.bak/
 *.bin
 *.safetensors
 *.gguf
-Bella/models/*
-!Bella/models/download_whisper_models.py
+TheWW_tui/models/*
+!TheWW_tui/models/download_whisper_models.py
 models/**/snapshots/
 models/**/blobs/
 models/**/*.index.json
@@ -73,14 +73,6 @@ lightning_logs/
 .Trashes
 ehthumbs.db
 Thumbs.db
-
-# Project specific
-phi-4-multi/models/**/model-*.safetensors
-csm-multi/models/**/ckpt.pt
-Low-latency-AI-Voice-Assistant/models/**/*
-!Low-latency-AI-Voice-Assistant/models/download_whisper_models.py
-Low-latency-AI-Voice-Assistant/models/whisper/*
-Low-latency-AI-Voice-Assistant/models/models--*/**/*
 
 # Keep model configuration files
 !models/**/config.json
