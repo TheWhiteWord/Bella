@@ -70,36 +70,52 @@ class BufferedRecorder:
 
     def start_recording(self):
         """Start recording with pre-buffer content and smooth transition"""
-        if not self.is_recording:
-            self.is_recording = True
-            self.should_stop = False
-            self.recording_buffer = []  # Clear any old data
+        if self.is_recording:
+            # If already recording, force stop first to ensure clean state
+            self.stop_recording()
             
-            # Start parec process for recording
-            cmd = [
-                'parec',  # PulseAudio recorder
-                '--format=float32le',
-                '--rate', str(self.sample_rate),
-                '--channels', '1',
-                '--latency-msec=20',
-                '--process-time-msec=20'
-            ]
+        self.is_recording = True
+        self.should_stop = False
+        self.voice_detected = False  # Reset voice detection state
+        self.recording_buffer = []  # Clear any old data
+        self.valid_frame_count = 0
+        self.consecutive_silence_frames = 0
+        
+        # Start parec process for recording
+        cmd = [
+            'parec',  # PulseAudio recorder
+            '--format=float32le',
+            '--rate', str(self.sample_rate),
+            '--channels', '1',
+            '--latency-msec=20',
+            '--process-time-msec=20'
+        ]
+        
+        try:
+            # Kill any existing recording process first
+            if self.recording_process:
+                try:
+                    self.recording_process.terminate()
+                    self.recording_process.wait(timeout=1)
+                except:
+                    pass
+                self.recording_process = None
+                
+            # Start a fresh recording process
+            self.recording_process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                bufsize=self.block_size * 4  # Buffer size in bytes
+            )
+            print("\nRecording started...")
             
-            try:
-                self.recording_process = subprocess.Popen(
-                    cmd,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    bufsize=self.block_size * 4  # Buffer size in bytes
-                )
-                print("\nRecording started...")
-                
-                # Start processing thread
-                asyncio.create_task(self._process_audio_stream())
-                
-            except Exception as e:
-                print(f"\nError starting recording: {e}")
-                self.stop_recording()
+            # Start processing thread
+            asyncio.create_task(self._process_audio_stream())
+            
+        except Exception as e:
+            print(f"\nError starting recording: {e}")
+            self.stop_recording()
 
     async def _process_audio_stream(self):
         """Process the audio stream from parec"""
@@ -268,6 +284,11 @@ class BufferedRecorder:
         self.consecutive_silence_frames = 0
         self.should_stop = False
         self.recording_buffer = []
+        
+        # Reset energy detection state to make sure we're ready for new input
+        self.last_energies = deque(maxlen=20)
+        
+        # Terminate any existing recording process
         if self.recording_process:
             try:
                 self.recording_process.terminate()
@@ -275,6 +296,8 @@ class BufferedRecorder:
             except:
                 pass
             self.recording_process = None
+        
+        # Clean up temp files if needed
         if not preserve_temp and self.temp_file:
             try:
                 os.unlink(self.temp_file.name)

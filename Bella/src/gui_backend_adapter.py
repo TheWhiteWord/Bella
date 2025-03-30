@@ -90,6 +90,12 @@ class BackendAdapter:
                 if current_time - self.last_state_log > 10:  # Log every 10 seconds
                     print(f"\nListening thread state: paused={self.is_paused}, recorder_recording={self.recorder.is_recording}")
                     self.last_state_log = current_time
+                    
+                    # Auto-recovery mechanism - if we're supposed to be listening but recorder isn't active
+                    if not self.is_paused and not self.recorder.is_recording:
+                        print("\nDetected recorder not active when it should be - auto-restarting recording")
+                        self.recorder.reset_state()
+                        self.recorder.start_recording()
                 
                 if self.is_paused:
                     # When paused, just wait
@@ -113,11 +119,21 @@ class BackendAdapter:
                         if self.speech_callback:
                             self.speech_callback(transcript)
                     
+                    # Restart recording after each transcript to avoid stuck state
+                    self.recorder.reset_state()
+                    self.recorder.start_recording()
+                    
                 except Exception as e:
                     print(f"Error in listening worker: {e}")
                     traceback.print_exc()
                     # Wait a bit before trying again
                     await asyncio.sleep(0.5)
+                    # Try to restart recording to recover from error
+                    try:
+                        self.recorder.reset_state()
+                        self.recorder.start_recording()
+                    except Exception as restart_err:
+                        print(f"Error restarting recorder: {restart_err}")
                     
         # Run the listen_continuously coroutine in this thread's event loop
         try:
@@ -136,17 +152,24 @@ class BackendAdapter:
             callback_on_speech: Function to call when speech is detected and transcribed
         """
         with self.thread_lock:
-            if self.listening_thread is not None and self.listening_thread.is_alive():
-                # Already running
-                print("Listening thread already running")
-                return
-            
+            # Force stop any existing thread first
+            if self.running:
+                self.running = False
+                self.is_paused = True
+                
+                if self.listening_thread and self.listening_thread.is_alive():
+                    # Wait a moment for the thread to notice it should stop
+                    time.sleep(0.3)
+                
+            # Reset all state variables
             print("\nStarting continuous listening...")
             self.speech_callback = callback_on_speech
             self.running = True
             self.is_paused = False
             
-            # Initialize recorder
+            # Ensure recorder is fully reset
+            self.recorder.should_stop = True
+            time.sleep(0.2)  # Brief pause to ensure cleanup
             self.recorder.initialize_audio_settings()
             self.recorder.reset_state()
             
@@ -170,10 +193,24 @@ class BackendAdapter:
         with self.thread_lock:
             print("\nResuming listening...")
             self.is_paused = False
+            
             # Ensure recorder is reset before resuming
+            if self.recorder.is_recording:
+                self.recorder.should_stop = True
+                
+            # Wait a moment to ensure any ongoing recording stops
+            time.sleep(0.2)
+            
+            # Fully reset the recorder state
             self.recorder.reset_state()
-            # Signal the listening thread to resume recording
+            
+            # Explicitly start a new recording session
+            self.recorder.start_recording()
+            print(f"Recorder started: is_recording={self.recorder.is_recording}")
+            
+            # Signal the audio manager to resume
             self.audio_manager.resume_session()
+            
             print("Listening resumed")
     
     async def _get_llm_response_async(self, transcript: str, context: Optional[str] = None) -> str:

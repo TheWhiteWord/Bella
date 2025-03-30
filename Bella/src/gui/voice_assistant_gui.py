@@ -383,8 +383,25 @@ class VoiceAssistantGUI:
         # Ensure we're paused while speaking (to avoid self-listening)
         self.backend.pause_listening()
         
-        # Start the waveform visualization
-        self._start_waveform_visualization()
+        # Stop any existing waveform visualization
+        self._stop_waveform_visualization()
+        
+        # Draw "Speaking" indicator
+        canvas_width = self.display_canvas.winfo_width()
+        canvas_height = self.display_canvas.winfo_height()
+        
+        # Change background to indicate TTS mode
+        self.display_canvas.configure(bg="#6A5ACD")  # Slate Blue
+            
+        # Draw TTS indicator text
+        self.display_canvas.create_text(
+            canvas_width / 2, 
+            canvas_height / 2,
+            text="Assistant Speaking...",
+            fill="#FFFFFF",
+            font=("Helvetica", 14, "bold"),
+            tags="tts_indicator"
+        )
         
         # Start a thread for TTS to avoid blocking the GUI
         threading.Thread(
@@ -432,17 +449,38 @@ class VoiceAssistantGUI:
         self._update_status("Listening...")
     
     def _verify_listening_resumed(self):
-        """Verify that listening resumed correctly after a delay."""
+        """Verify that listening resumed correctly after a delay, with retry logic."""
         # Give the backend a moment to resume
         time.sleep(1.0)
         
         # Check if listening was not properly resumed
         if self.backend.is_paused or not self.backend.running:
             print("\nDetected listening did not resume correctly, forcing restart...")
-            # Force restart listening
-            self.backend.pause_listening()  
-            time.sleep(0.2)
-            self.backend.resume_listening()
+            
+            # Try to restart listening more aggressively
+            try:
+                # First try to pause again to reset state
+                self.backend.pause_listening()
+                time.sleep(0.2)
+                
+                # Now fully restart
+                self.backend.resume_listening()
+                time.sleep(0.5)
+                
+                # Verify one more time
+                if self.backend.is_paused or not self.backend.running:
+                    print("\nSecond verification failed, trying full restart...")
+                    
+                    # Try more aggressive approach - recreate the listening thread
+                    if hasattr(self.backend, 'speech_callback') and self.backend.speech_callback:
+                        callback = self.backend.speech_callback
+                        self.backend.cleanup()
+                        time.sleep(0.3)
+                        self.backend.start_continuous_listening(callback)
+            except Exception as e:
+                print(f"\nError during verification restart: {e}")
+        else:
+            print("\nVerified listening resumed correctly")
     
     def _start_waveform_visualization(self):
         """Start the waveform visualization."""
@@ -456,6 +494,23 @@ class VoiceAssistantGUI:
         
         # Clear the canvas
         self.display_canvas.delete("all")
+        
+        # Check if we're speaking or listening
+        if self.is_reading_context or self.is_processing:
+            # Display TTS indicator instead of waveform when speaking
+            canvas_width = self.display_canvas.winfo_width()
+            canvas_height = self.display_canvas.winfo_height()
+            
+            # Draw TTS indicator text
+            self.display_canvas.create_text(
+                canvas_width / 2, 
+                canvas_height / 2,
+                text="TTS Output",
+                fill="#FFFFFF",
+                font=("Helvetica", 16, "bold"),
+                tags="tts_indicator"
+            )
+            return
         
         # Start the capture thread
         self.waveform_thread = threading.Thread(

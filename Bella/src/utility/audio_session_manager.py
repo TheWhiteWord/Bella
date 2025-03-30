@@ -69,14 +69,8 @@ class AudioSessionManager:
         if self.debug:
             print("\nPausing session...")
 
-    def resume_session(self) -> None:
-        """Resume or start a new session."""
-        self.should_pause = False
-        if self.debug:
-            print("\nResuming session...")
-
     async def start_session(self) -> Tuple[Optional[str], List[str]]:
-        """Start a new recording session.
+        """Start a new recording session with improved timeouts and state management.
         
         Returns:
             Tuple[Optional[str], List[str]]: The transcribed text and any segment info
@@ -85,7 +79,25 @@ class AudioSessionManager:
         self.should_stop = False
         self.should_pause = False
         
+        # Track time to ensure we don't get stuck waiting
+        start_time = time.time()
+        timeout = 60.0  # Maximum time to wait for audio input
+        last_debug_time = time.time()
+        debug_interval = 10.0  # Status update every 10 seconds
+        
         while not self.should_stop and not self.should_pause:
+            # Periodic debug status updates
+            current_time = time.time()
+            if self.debug and current_time - last_debug_time > debug_interval:
+                recorder_status = "recording" if self.recorder and self.recorder.is_recording else "not recording"
+                print(f"\nAudio session state: wait_time={current_time - start_time:.1f}s, recorder={recorder_status}")
+                last_debug_time = current_time
+                
+                # If recorder isn't recording but should be, try to restart it
+                if self.recorder and not self.recorder.is_recording and not self.should_pause:
+                    print("\nDetected recorder not active, attempting to restart...")
+                    self.recorder.start_recording()
+            
             if self.recorder and self.recorder.last_recording:
                 audio_file = self.recorder.last_recording
                 self.recorder.last_recording = None  # Clear it immediately to prevent reprocessing
@@ -95,7 +107,20 @@ class AudioSessionManager:
                 # Return immediately after processing one clip
                 if self.clips:
                     return self.clips[-1], self.clips
-
+            
+            # Check for timeout to avoid infinite waiting
+            if time.time() - start_time > timeout:
+                if self.debug:
+                    print("\nTimeout waiting for audio input in start_session")
+                    
+                # Try to restart the recorder as a recovery attempt
+                if self.recorder:
+                    print("\nTimeout reached - restarting recorder")
+                    self.recorder.reset_state()
+                    self.recorder.start_recording()
+                
+                break
+                
             await asyncio.sleep(0.1)
 
         # If we're stopping/pausing without processing a clip
@@ -103,19 +128,16 @@ class AudioSessionManager:
             return None, []
             
         return self.clips[-1], self.clips
-
-    def stop_session(self) -> None:
-        """Stop the current session and clean up."""
-        self.should_stop = True
-        # Clean up any remaining temporary file, but not debug files
-        if self._current_temp_file and os.path.exists(self._current_temp_file):
-            if not (self.recorder and self.recorder.debug_mode and 
-                   self._current_temp_file.startswith(self.recorder.debug_dir)):
-                try:
-                    os.unlink(self._current_temp_file)
-                    if self.debug:
-                        print(f"\nCleaned up temporary file during stop: {self._current_temp_file}")
-                except Exception as e:
-                    if self.debug:
-                        print(f"\nError cleaning up temporary file during stop: {e}")
-            self._current_temp_file = None
+        
+    def resume_session(self) -> None:
+        """Resume or start a new session with explicit state reset and recorder initialization."""
+        self.should_pause = False
+        self.clips = []  # Clear any previous clips to start fresh
+        
+        # Explicitly ensure recorder is running if available
+        if self.recorder and not self.recorder.is_recording:
+            self.recorder.reset_state()
+            self.recorder.start_recording()
+        
+        if self.debug:
+            print("\nResuming session - ready for new transcriptions")

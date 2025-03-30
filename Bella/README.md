@@ -1,153 +1,114 @@
----
-title: AI Voice Assistant Pipeline
-emoji: 🗣️
-colorFrom: indigo
-colorTo: blue
-sdk: streamlit
-sdk_version: "1.23.1"
-app_file: app.py
-pinned: false
----
-# AI-Voice-Assistant-Pipeline
+# Bella - Voice Assistant with GUI
 
-This repository contains an end-to-end AI Voice Assistant pipeline. The system converts voice input to text using OpenAI's Whisper, processes the text with a Large Language Model (LLM) from Hugging Face, and then converts the response back to speech using Edge-TTS. It also features Voice Activity Detection (VAD), output restrictions, and tunable parameters such as pitch, voice type, and speed.
+A modern voice assistant that features both a graphical user interface and command-line interface. Bella uses local LLMs via Ollama, high-quality Kokoro TTS for speech synthesis, and Whisper for speech recognition.
 
 ## Features
 
-- **Voice Activity Detection (VAD):** Automatically detects voice activity and ignores silence.
-- **Speech-to-Text (STT):** Converts spoken language to text using the `faster-whisper` model.
-- **Text-to-Speech (TTS):** Converts text to speech using the `edge-tts` model.
-- **Large Language Model (LLM) Integration:** Utilizes a Hugging Face model for generating intelligent responses.
-- **Real-Time Response:** Optimized for low latency responses.
-- **Tunable Parameters:** Adjust pitch, voice type (male/female), and speed of speech synthesis.
+- **Dual Interface:** Choose between an intuitive GUI or efficient CLI mode
+- **Local Processing:** Runs entirely on your local machine with no cloud dependencies
+- **High-Quality TTS:** Kokoro TTS provides natural-sounding speech output
+- **Accurate Speech Recognition:** Whisper-based STT with voice activity detection
+- **Context-Aware Interactions:** Add context to enhance assistant responses
+- **Waveform Visualization:** Real-time audio visualization during playback
+- **PulseAudio/PipeWire Integration:** Uses native Linux audio subsystem for I/O
 
-## Installation
+## Getting Started
 
 ### Prerequisites
-- Python 3.8+
-- Git
-- A Hugging Face account for API access
+- Python 3.10+
+- Conda environment (recommended)
+- PulseAudio or PipeWire for audio I/O
+- Ollama for local LLM support
 
-### Setup
+### Installation
 
-1. **Clone the repository:**
+1. **Set up the conda environment:**
    ```bash
-   git clone https://github.com/your-username/AI-Voice-Assistant-Pipeline.git
-   cd AI-Voice-Assistant-Pipeline
+   conda env create -f environment.yml
+   conda activate bella
    ```
 
-2. **Create a virtual environment:**
+2. **Ensure Ollama is installed and running:**
    ```bash
-   python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   # Install Ollama if needed: https://ollama.com/download
+   ollama pull lexi  # Or any other model you prefer
    ```
 
-3. **Install the required packages:**
+3. **Launch the application:**
    ```bash
-   pip install -r requirements.txt
+   # GUI Mode
+   python launcher.py --gui
+   
+   # CLI Mode
+   python launcher.py
    ```
-
-4. **Set up Hugging Face API Token:**
-   - Sign up at [Hugging Face](https://huggingface.co/join) and obtain an API token.
-   - Set up your environment variable:
-     ```bash
-     Rename .env.example to .env
-     Assign Values to environment variables
-     ```
 
 ## Usage
 
-### Running the Voice Assistant
+### GUI Mode
 
-You can run the assistant in two modes:
+The graphical interface provides an intuitive way to interact with the voice assistant:
 
-1. **Real-Time Interaction via Terminal:**
-   ```bash
-   python main.py
-   ```
+1. **Voice Chat:** The assistant begins listening automatically - just speak!
+2. **Context Loading:** Drag and drop any .txt file to provide context for more informed responses
+3. **Read Context:** Have the assistant read your documents aloud
+4. **Audio Download:** Save synthesized speech as WAV files
 
-2. **Streamlit Web Interface:**
-   ```bash
-   streamlit run app.py
-   ```
+For detailed information about GUI usage, see [GUI_README.md](/doc/GUI_README.md).
 
-### File Structure
+### CLI Mode
 
-Here's an overview of the main file structure:
+The command-line interface provides a more streamlined experience:
 
-```markdown
-- AI-Voice-Assistant-Pipeline/
-  - main.py           # Entry point for real-time voice assistant
-  - app.py            # Streamlit web interface for the assistant
-  - requirements.txt  # Required Python packages
-  - utils/
-    - stt.py          # Speech-to-Text conversion with Whisper
-    - tts.py          # Text-to-Speech conversion with Edge-TTS
-    - llm.py          # Large Language Model response generation
-  - README.md         # Project documentation
+1. **Start the assistant:** `python launcher.py`
+2. **Speak when prompted:** The assistant indicates when it's listening
+3. **Get responses:** The assistant processes your speech and responds automatically
+
+### Command-Line Options
+
+```bash
+python launcher.py [options]
+
+Options:
+  --gui               Start in GUI mode (default is CLI mode)
+  --model MODEL       Specify which LLM to use
+  --sink SINK         Specify PulseAudio sink name for audio output
+  --list-devices      List available audio output devices and exit
 ```
 
-### Models and Libraries Used
+## Components
 
-1. **Speech-to-Text (STT):**
-   - Model: `faster-whisper(tiny)`
-   - Function: Converts voice input into text.
-   - Configurations: Sampling rate of 16 kHz, Mono channel, VAD threshold set to 0.1.
+- **BackendAdapter:** Bridges GUI and async backend components
+- **BufferedRecorder:** Handles audio recording with VAD
+- **AudioSessionManager:** Manages speech processing sessions
+- **KokoroTTSWrapper:** Provides high-quality text-to-speech
+- **VoiceAssistantGUI:** Implements the graphical interface
 
-2. **Large Language Model (LLM):**
-   - Model: Hugging Face model (choose as per your application).
-   - Function: Processes the text input and generates a response.
-   - Configuration: Restrict output to 60 tokens for brevity.
+## Technical Details
 
-3. **Text-to-Speech (TTS):**
-   - Model: `edge-tts`
-   - Function: Converts LLM-generated text back into speech.
-   - Tunable Parameters: 
-     - **Pitch:** Adjusts the pitch of the synthesized voice.
-     - **Voice Type:** Choose between male/female voices.
-     - **Speed:** Adjust the speed of speech synthesis.
+- **Speech Recognition:** Whisper model for accurate transcription
+- **LLM Integration:** Local models via Ollama (Lexi, Mistral, etc.)
+- **Text-to-Speech:** Kokoro TTS with custom voice profiles
+- **Audio I/O:** PulseAudio/PipeWire for native Linux audio support
+- **Threading Model:** Mix of threading and asyncio for responsiveness
 
-### Additional Requirements
+## Documentation
 
-1. **Latency Optimization:**
-   - To minimize latency under 500 ms, consider using Web Real-Time Communication (WRTC) frameworks that support low-latency streaming. Optimization at the code level (e.g., efficient threading and processing pipelines) can also help reduce delays. Such as using providing the transcribed text to the inference api asychronously to get faster response time.
-
-2. **Voice Activity Detection (VAD):**
-   - Implemented in Models\faster_whisper_stt_tiny.py, this module detects when a person is speaking by classifying it from the threshold frequency and ignores periods of silence. The threshold can be adjusted in the configuration.
-
-3. **Output Restriction:**
-   - The LLM response is limited to 2 sentences or 60 new tokens to ensure concise communication.
-
-### Testing the Application
-
-1. Start by testing the real-time voice assistant with:
-   ```bash
-   python main.py
-   ```
-   This will allow you to interact with the assistant directly from your terminal.
-
-2. To explore the web interface, run:
-   ```bash
-   streamlit run app.py
-   ```
-
-### Troubleshooting
-
-- **Initial Model Download:** The `faster-whisper` model may take some time to download initially (~2GB). Make sure your internet connection is stable.
-
-- **API Token Issues:** Ensure your Hugging Face API token is correctly set up as an environment variable.
-
-- **Latency Issues:** If you experience delays, review your system resources and consider optimizing the code or using more powerful hardware.
+- [GUI Guide](/doc/GUI_README.md) - User guide for the graphical interface
+- [Dev Documentation](/doc/Dev/Dev.md) - Technical details for developers
+- [Kokoro TTS](/doc/Kokoro.md) - Information about the TTS system
+- [Ollama Integration](/doc/OLLAMA_LIBRARY.md) - Details on LLM integration
 
 ## Contributing
 
-Feel free to submit pull requests or open issues if you encounter any bugs or have suggestions for improvements.
+Feel free to submit issues, fork the repository and send pull requests!
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License - see the LICENSE file for details.
 
----
+## Acknowledgments
 
-Thank you for checking out the AI Voice Assistant Pipeline! If you find this project useful, please give it a star ⭐ on GitHub!
->>>>>>> e60660f (added all relevant files)
+- [Kokoro TTS](https://github.com/hexgrad/kokoro) for high-quality speech synthesis
+- [OpenAI's Whisper](https://github.com/openai/whisper) for speech recognition
+- [Ollama](https://ollama.com/) for local LLM support
