@@ -67,7 +67,8 @@ ehthumbs.db
 Thumbs.db
 
 # Large files are handled by Git LFS (defined in .gitattributes)
-# Model files - explicitly include them
+# Model files - explicitly include them, except Whisper
+Bella/models/whisper/**
 !Bella/models/**/*.bin
 !Bella/models/**/*.pth
 !Bella/models/**/*.safetensors
