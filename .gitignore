@@ -38,32 +38,24 @@ venv.bak/
 .pydevproject
 .settings/
 
-# Model Files and Checkpoints
-*.pt
-*.pth
-*.bin
-*.safetensors
-*.gguf
-TheWW_tui/models/*
-!TheWW_tui/models/download_whisper_models.py
-models/**/snapshots/
-models/**/blobs/
-models/**/*.index.json
+# Development and testing
+.coverage
+.pytest_cache/
+htmlcov/
+.tox/
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
 
-# Audio Files
-*.wav
-*.mp3
-*.flac
-*.ogg
-clone_files/*.mp3
-outputs/*.wav
-
-# Generated files
-outputs/
+# Logs and temporary files
 logs/
+*.log
 wandb/
 runs/
 lightning_logs/
+tmp/
+temp/
 
 # OS specific
 .DS_Store
@@ -74,28 +66,36 @@ lightning_logs/
 ehthumbs.db
 Thumbs.db
 
-# Keep model configuration files
-!models/**/config.json
-!models/**/tokenizer.json
-!models/**/vocab.json
-!models/**/merges.txt
-!models/**/special_tokens_map.json
-!models/**/added_tokens.json
-!models/**/tokenizer_config.json
-!models/**/preprocessor_config.json
-!models/**/generation_config.json
+# Large files are handled by Git LFS (defined in .gitattributes)
+# Model files - explicitly include them
+!Bella/models/**/*.bin
+!Bella/models/**/*.pth
+!Bella/models/**/*.safetensors
+!Bella/models/**/*.gguf
+!Bella/models/**/*.pt
+!Bella/models/**/*.onnx
+!Bella/models/**/*.h5
+!Bella/models/**/*.tflite
 
-# Documentation and research
+# Audio working files
+clone_files/*.mp3
+outputs/*.wav
+
+# Generated output directories
+outputs/
+
+# Keep configuration files
+!**/config.json
+!**/tokenizer.json
+!**/vocab.json
+!**/merges.txt
+!**/special_tokens_map.json
+!**/added_tokens.json
+!**/tokenizer_config.json
+!**/preprocessor_config.json
+!**/generation_config.json
+
+# Documentation
 !doc/
 !*.md
 !LICENSE
-
-# Testing
-.coverage
-.pytest_cache/
-htmlcov/
-.tox/
-nosetests.xml
-coverage.xml
-*.cover
-.hypothesis/
