@@ -11,27 +11,29 @@ This guide provides step-by-step instructions for setting up the development env
 
 ### 1. Create and Activate Conda Environment
 ```bash
-# Create a new environment with Python 3.10
-conda create -n sesame-env python=3.10
+# Create a new environment with Python 3.11
+conda create -n bella python=3.11
 
 # Activate the environment
-conda activate sesame-env
+conda activate bella
 ```
-✅ Status: Environment created with Python 3.10
+ Status: Environment created with Python 3.11
 
 ### 2. Install CUDA Toolkit
+
 ```bash
 # Install CUDA toolkit 12.4 from NVIDIA channel
+
 conda install -c nvidia cuda-toolkit=12.4
 ```
-✅ Status: CUDA toolkit installed
+ Status: CUDA toolkit installed
 
 ### 3. Install PyTorch with CUDA Support
 ```bash
-# Install PyTorch 2.4.0 with CUDA 12.4 support
-pip3 install torch==2.4.0 torchaudio==2.4.0 --index-url https://download.pytorch.org/whl/cu124
+# Install PyTorch 2.5.1 with CUDA 12.4 support
+pip3 install torch==2.5.1 torchaudio==2.5.1 --index-url https://download.pytorch.org/whl/cu124
 ```
-✅ Status: PyTorch installed with CUDA support
+ Status: PyTorch installed with CUDA support
 
 ### 4. Install cuDNN
 If you encounter the error `libcudnn.so.9: cannot open shared object file: No such file or directory`, install cuDNN:
@@ -39,7 +41,7 @@ If you encounter the error `libcudnn.so.9: cannot open shared object file: No su
 # Install cuDNN from conda-forge
 conda install -c conda-forge cudnn
 ```
-✅ Status: cuDNN installed successfully
+ Status: cuDNN installed successfully
 
 ### 5. Verify CUDA Setup
 Run this Python code to verify CUDA is working:
@@ -78,10 +80,10 @@ pip install urllib3>=1.25
 ```
 
 ## Current Environment Status
-- Python Version: 3.10
+- Python Version: 3.11
 - CUDA Version: 12.4
 - cuDNN Version: 9.8.0.87
-- PyTorch: 2.4.0+cu124
+- PyTorch: 2.5.1+cu124
 - GPU Support: Enabled and verified
 
 ## Verification Steps
