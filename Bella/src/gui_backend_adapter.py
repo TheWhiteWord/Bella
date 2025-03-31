@@ -84,11 +84,19 @@ class BackendAdapter:
             # Initialize the TTS engine in this thread
             await self._init_tts_engine()
             
+            # Track speech detection attempts
+            speech_detection_count = 0
+            last_transcript_time = time.time()
+            
             while self.running:
                 # Periodically log state for debugging
                 current_time = time.time()
                 if current_time - self.last_state_log > 10:  # Log every 10 seconds
                     print(f"\nListening thread state: paused={self.is_paused}, recorder_recording={self.recorder.is_recording}")
+                    print(f"Speech detection attempts: {speech_detection_count} since startup")
+                    if speech_detection_count > 0:
+                        elapsed = current_time - last_transcript_time
+                        print(f"Time since last transcript: {elapsed:.1f} seconds")
                     self.last_state_log = current_time
                     
                     # Auto-recovery mechanism - if we're supposed to be listening but recorder isn't active
@@ -110,16 +118,30 @@ class BackendAdapter:
                         self.recorder.start_recording()
                     
                     # Wait for speech
+                    speech_detection_count += 1
+                    print(f"\nWaiting for speech... (attempt {speech_detection_count})")
                     transcript, segments = await self.audio_manager.start_session()
                     
                     # If we got a transcript, call the callback
-                    if transcript and self.speech_callback and not self.is_paused:
-                        print(f"\nSpeech detected in listening thread: {transcript[:30]}...")
-                        # Call the speech callback in the main thread
-                        if self.speech_callback:
+                    if transcript:
+                        print(f"\nSpeech detected: '{transcript}'")
+                        last_transcript_time = time.time()
+                        
+                        if self.speech_callback and not self.is_paused:
+                            # Log callback invocation
+                            print("Invoking speech callback with transcript")
+                            # Call the speech callback in the main thread
                             self.speech_callback(transcript)
+                        else:
+                            if not self.speech_callback:
+                                print("WARNING: No speech callback registered!")
+                            if self.is_paused:
+                                print("WARNING: Ignoring transcript because system is paused")
+                    else:
+                        print("\nNo transcript generated from audio")
                     
                     # Restart recording after each transcript to avoid stuck state
+                    print("Resetting recorder for next interaction")
                     self.recorder.reset_state()
                     self.recorder.start_recording()
                     
@@ -130,6 +152,7 @@ class BackendAdapter:
                     await asyncio.sleep(0.5)
                     # Try to restart recording to recover from error
                     try:
+                        print("Attempting recovery after error")
                         self.recorder.reset_state()
                         self.recorder.start_recording()
                     except Exception as restart_err:

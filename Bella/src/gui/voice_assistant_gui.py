@@ -7,10 +7,7 @@ import os
 import sys
 import tkinter as tk
 from tkinter import ttk, filedialog
-import queue
 import threading
-import subprocess
-import numpy as np
 import tempfile
 import shutil
 import time
@@ -46,8 +43,6 @@ class VoiceAssistantGUI:
         self.is_reading_context = False
         self.is_processing = False
         self.last_tts_filepath = None
-        self.audio_subprocess = None
-        self.audio_queue = queue.Queue(maxsize=100)
         self.sink_name = sink_name
         
         # Set up the backend
@@ -66,12 +61,20 @@ class VoiceAssistantGUI:
         # Create the GUI elements
         self._create_widgets()
         
-        # Set up the waveform visualization thread and updater
-        self.waveform_thread = None
-        self.should_stop_waveform = False
-        
         # Set up cleanup on window close
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+        
+        # Initialize canvas with listening text
+        self.root.update()  # Ensure the canvas has been drawn
+        canvas_width = self.display_canvas.winfo_width()
+        canvas_height = self.display_canvas.winfo_height()
+        self.display_canvas.create_text(
+            canvas_width / 2, 
+            canvas_height / 2,
+            text="Listening...",
+            fill="#FFFFFF",
+            font=("Helvetica", 14, "bold")
+        )
         
         # Start continuous listening
         self.backend.start_continuous_listening(self._on_speech_detected)
@@ -245,8 +248,20 @@ class VoiceAssistantGUI:
         output_path = temp_file.name
         temp_file.close()
         
-        # Start the waveform visualization
-        self._start_waveform_visualization()
+        # Update canvas to show reading state
+        self.display_canvas.delete("all")
+        self.display_canvas.configure(bg="#6A5ACD")  # Slate Blue
+        
+        canvas_width = self.display_canvas.winfo_width()
+        canvas_height = self.display_canvas.winfo_height()
+        self.display_canvas.create_text(
+            canvas_width / 2, 
+            canvas_height / 2,
+            text="Reading Context...",
+            fill="#FFFFFF",
+            font=("Helvetica", 14, "bold"),
+            tags="reading_indicator"
+        )
         
         # Start a thread for TTS to avoid blocking the GUI
         threading.Thread(
@@ -294,8 +309,19 @@ class VoiceAssistantGUI:
         self.is_reading_context = False
         self.is_processing = False
         
-        # Stop the waveform visualization
-        self._stop_waveform_visualization()
+        # Reset canvas to listening state
+        self.display_canvas.delete("all")
+        self.display_canvas.configure(bg="#F08080")  # Light Coral background
+        
+        canvas_width = self.display_canvas.winfo_width()
+        canvas_height = self.display_canvas.winfo_height()
+        self.display_canvas.create_text(
+            canvas_width / 2, 
+            canvas_height / 2,
+            text="Listening...",
+            fill="#FFFFFF",
+            font=("Helvetica", 14, "bold")
+        )
         
         # Resume listening
         self.backend.resume_listening()
@@ -383,17 +409,13 @@ class VoiceAssistantGUI:
         # Ensure we're paused while speaking (to avoid self-listening)
         self.backend.pause_listening()
         
-        # Stop any existing waveform visualization
-        self._stop_waveform_visualization()
-        
-        # Draw "Speaking" indicator
-        canvas_width = self.display_canvas.winfo_width()
-        canvas_height = self.display_canvas.winfo_height()
-        
-        # Change background to indicate TTS mode
+        # Clear canvas and show speaking indicator
+        self.display_canvas.delete("all")
         self.display_canvas.configure(bg="#6A5ACD")  # Slate Blue
             
         # Draw TTS indicator text
+        canvas_width = self.display_canvas.winfo_width()
+        canvas_height = self.display_canvas.winfo_height()
         self.display_canvas.create_text(
             canvas_width / 2, 
             canvas_height / 2,
@@ -433,10 +455,21 @@ class VoiceAssistantGUI:
         print("\nCleaning up after interaction and resuming listening...")
         self.is_processing = False
         
-        # Stop the waveform visualization
-        self._stop_waveform_visualization()
+        # Reset canvas to listening state
+        self.display_canvas.delete("all")
+        self.display_canvas.configure(bg="#F08080")  # Light Coral background
         
-        # Important: Resume listening here
+        canvas_width = self.display_canvas.winfo_width()
+        canvas_height = self.display_canvas.winfo_height()
+        self.display_canvas.create_text(
+            canvas_width / 2, 
+            canvas_height / 2,
+            text="Listening...",
+            fill="#FFFFFF",
+            font=("Helvetica", 14, "bold")
+        )
+        
+        # Resume listening
         self.backend.resume_listening()
         
         # Start a separate thread to verify that listening resumed correctly
@@ -482,219 +515,12 @@ class VoiceAssistantGUI:
         else:
             print("\nVerified listening resumed correctly")
     
-    def _start_waveform_visualization(self):
-        """Start the waveform visualization."""
-        # Don't start if already running
-        if self.waveform_thread is not None and self.waveform_thread.is_alive():
-            return
-            
-        # Reset state
-        self.should_stop_waveform = False
-        self.audio_queue = queue.Queue(maxsize=100)
-        
-        # Clear the canvas
-        self.display_canvas.delete("all")
-        
-        # Check if we're speaking or listening
-        if self.is_reading_context or self.is_processing:
-            # Display TTS indicator instead of waveform when speaking
-            canvas_width = self.display_canvas.winfo_width()
-            canvas_height = self.display_canvas.winfo_height()
-            
-            # Draw TTS indicator text
-            self.display_canvas.create_text(
-                canvas_width / 2, 
-                canvas_height / 2,
-                text="TTS Output",
-                fill="#FFFFFF",
-                font=("Helvetica", 16, "bold"),
-                tags="tts_indicator"
-            )
-            return
-        
-        # Start the capture thread
-        self.waveform_thread = threading.Thread(
-            target=self._waveform_capture_thread,
-            daemon=True
-        )
-        self.waveform_thread.start()
-        
-        # Start the periodic update function
-        self._update_waveform()
-    
-    def _stop_waveform_visualization(self):
-        """Stop the waveform visualization."""
-        # Set the stop flag
-        self.should_stop_waveform = True
-        
-        # Wait for thread to finish
-        if self.waveform_thread and self.waveform_thread.is_alive():
-            self.waveform_thread.join(timeout=1)
-        
-        # Terminate audio subprocess
-        if self.audio_subprocess:
-            try:
-                self.audio_subprocess.terminate()
-                self.audio_subprocess.wait(timeout=1)
-            except:
-                pass
-            self.audio_subprocess = None
-            
-        # Clear the canvas
-        self.display_canvas.delete("all")
-    
-    def _waveform_capture_thread(self):
-        """Thread function for capturing audio data for visualization."""
-        try:
-            # Determine which command to use
-            try:
-                # Check if pw-record exists
-                subprocess.run(['which', 'pw-record'], check=True, 
-                             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                use_pipewire = True
-            except:
-                use_pipewire = False
-            
-            # Get the monitor source
-            if self.sink_name:
-                monitor_source = f"{self.sink_name}.monitor"
-            else:
-                # Get default sink
-                try:
-                    result = subprocess.run(['pactl', 'get-default-sink'], 
-                                         capture_output=True, text=True, check=True)
-                    default_sink = result.stdout.strip()
-                    monitor_source = f"{default_sink}.monitor"
-                except:
-                    monitor_source = "default.monitor"  # Fallback
-            
-            # Build the command
-            if use_pipewire:
-                cmd = ['pw-record', '--raw', '--format=s16le', '--rate=44100', 
-                      '--channels=1', '--target', monitor_source, '-']
-            else:
-                cmd = ['parec', '--raw', '--format=s16le', '--rate=44100', 
-                      '--channels=1', '-d', monitor_source]
-            
-            # Start the subprocess
-            self.audio_subprocess = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                bufsize=4096
-            )
-            
-            # Process the audio data
-            chunk_size = 4096
-            while not self.should_stop_waveform:
-                # Read a chunk of raw audio data
-                raw_data = self.audio_subprocess.stdout.read(chunk_size)
-                if not raw_data:
-                    break
-                    
-                # Convert to numpy array
-                audio_data = np.frombuffer(raw_data, dtype=np.int16)
-                
-                # Normalize to float between -1 and 1
-                normalized_data = audio_data.astype(np.float32) / 32768.0
-                
-                # Put on the queue for the GUI thread
-                try:
-                    self.audio_queue.put(normalized_data, block=False)
-                except queue.Full:
-                    # Skip if the queue is full
-                    pass
-                    
-        except Exception as e:
-            print(f"Error in waveform capture: {e}")
-        finally:
-            # Make sure to clean up
-            if self.audio_subprocess:
-                try:
-                    self.audio_subprocess.terminate()
-                    self.audio_subprocess.wait(timeout=1)
-                except:
-                    pass
-                self.audio_subprocess = None
-    
-    def _update_waveform(self):
-        """Update the waveform visualization on the canvas."""
-        # Check if we should be updating
-        if self.should_stop_waveform:
-            return
-            
-        # Try to get data from the queue
-        try:
-            # Get all available data (up to a limit)
-            data = []
-            for _ in range(5):  # Limit to 5 chunks to avoid lagging
-                try:
-                    chunk = self.audio_queue.get(block=False)
-                    data.append(chunk)
-                except queue.Empty:
-                    break
-                    
-            if data:
-                # Combine the chunks
-                combined = np.concatenate(data)
-                
-                # Clear previous visualization
-                self.display_canvas.delete("bar")
-                
-                # Get canvas dimensions
-                canvas_width = self.display_canvas.winfo_width()
-                canvas_height = self.display_canvas.winfo_height()
-                
-                if canvas_width > 10 and canvas_height > 10:  # Only proceed if canvas has reasonable size
-                    # Number of bars to display
-                    num_bars = 30
-                    bar_width = canvas_width / num_bars
-                    
-                    # Segment the audio data
-                    segment_size = len(combined) // num_bars
-                    if segment_size > 0:
-                        for i in range(num_bars):
-                            # Extract segment
-                            start = i * segment_size
-                            end = start + segment_size
-                            if end <= len(combined):
-                                segment = combined[start:end]
-                                
-                                # Calculate amplitude (RMS)
-                                amplitude = np.sqrt(np.mean(segment**2))
-                                
-                                # Scale to canvas height
-                                bar_height = amplitude * canvas_height * 0.8
-                                
-                                # Center vertically
-                                y_top = (canvas_height - bar_height) / 2
-                                y_bottom = y_top + bar_height
-                                
-                                # Draw the bar
-                                x_left = i * bar_width
-                                x_right = x_left + bar_width * 0.8  # Leave gap between bars
-                                
-                                self.display_canvas.create_rectangle(
-                                    x_left, y_top, x_right, y_bottom,
-                                    fill="#8B0000",  # Dark red color
-                                    width=0,
-                                    tags="bar"
-                                )
-        except Exception as e:
-            print(f"Error updating waveform: {e}")
-        
-        # Schedule next update (15ms = ~66 FPS)
-        self.root.after(15, self._update_waveform)
-    
     def _update_status(self, text):
         """Update the status label text."""
         self.status_label.config(text=text)
     
     def _on_close(self):
         """Handle window close event."""
-        # Stop waveform visualization
-        self._stop_waveform_visualization()
-        
         # Clean up backend resources
         self.backend.cleanup()
         

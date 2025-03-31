@@ -1,6 +1,6 @@
 # Technology Stack
 
-- **Python Version:** Python 3.10+
+- **Python Version:** Python 3.11+
 - **Testing Framework:** `pytest`
 - **Documentation:** Google style docstring
 - **Environment Management:** `conda` , `conda activate bella`
