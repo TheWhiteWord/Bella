@@ -25,6 +25,8 @@ class AudioSessionManager:
         self.should_pause = False
         self.recorder = None
         self._current_temp_file = None  # Track current temporary file for cleanup
+        self._state_transition_lock = asyncio.Lock()
+        self._last_state_change = 0
 
     def set_recorder(self, recorder) -> None:
         """Set the recorder instance."""
@@ -63,11 +65,23 @@ class AudioSessionManager:
         finally:
             self._current_temp_file = None
 
-    def pause_session(self) -> None:
-        """Pause the current session."""
-        self.should_pause = True
-        if self.debug:
-            print("\nPausing session...")
+    async def pause_session(self) -> None:
+        """Pause the current session with state transition protection."""
+        async with self._state_transition_lock:
+            current_time = time.time()
+            if current_time - self._last_state_change < 1.0:
+                # Prevent rapid state changes
+                return
+                
+            self.should_pause = True
+            self._last_state_change = current_time
+            if self.debug:
+                print("\nPausing session...")
+            
+            # Ensure recorder is properly stopped
+            if self.recorder and self.recorder.is_recording:
+                self.recorder.stop_recording()
+                await asyncio.sleep(0.2)  # Small delay to ensure cleanup
 
     async def start_session(self) -> Tuple[Optional[str], List[str]]:
         """Start a new recording session with improved timeouts and state management.
@@ -129,15 +143,25 @@ class AudioSessionManager:
             
         return self.clips[-1], self.clips
         
-    def resume_session(self) -> None:
-        """Resume or start a new session with explicit state reset and recorder initialization."""
-        self.should_pause = False
-        self.clips = []  # Clear any previous clips to start fresh
-        
-        # Explicitly ensure recorder is running if available
-        if self.recorder and not self.recorder.is_recording:
-            self.recorder.reset_state()
-            self.recorder.start_recording()
-        
-        if self.debug:
-            print("\nResuming session - ready for new transcriptions")
+    async def resume_session(self) -> None:
+        """Resume or start a new session with state transition protection."""
+        async with self._state_transition_lock:
+            current_time = time.time()
+            if current_time - self._last_state_change < 1.0:
+                # Prevent rapid state changes
+                return
+                
+            self.should_pause = False
+            self._last_state_change = current_time
+            self.clips = []  # Clear any previous clips to start fresh
+            
+            # Ensure recorder is properly started
+            if self.recorder:
+                if self.recorder.is_recording:
+                    self.recorder.stop_recording()
+                    await asyncio.sleep(0.2)  # Small delay for cleanup
+                self.recorder.reset_state()
+                self.recorder.start_recording()
+            
+            if self.debug:
+                print("\nResuming session - ready for new transcriptions")
