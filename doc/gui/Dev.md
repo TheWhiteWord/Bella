@@ -67,10 +67,7 @@ The voice assistant provides a simple, visually appealing GUI for interacting wi
 *   **Display Area:**
     *   Background: Light Coral (`#F08080`)
     *   Border: Sienna (`#8B4513`)
-    *   Content: Real-time audio waveform visualization (dark red bars, `#8B0000`) during audio playback
-*   **Status Label:**
-    *   Displays current status: "Listening...", "Thinking...", "Speaking...", etc.
-    *   Background: Matches main window
+    *   Content: Displays current status: "Listening...", "Thinking...", "Speaking...", etc.
 *   **Button Row:**
     *   Context Button:
         *   OFF state: Dark grey (`#696969`), white text "Context: OFF"
@@ -115,18 +112,7 @@ The `BackendAdapter` wraps these components:
 
 The adapter maintains an asyncio event loop in a background thread for processing async operations while keeping the GUI responsive.
 
-**6. Waveform Visualization**
-
-The waveform visualization captures and displays the audio output:
-
-*   Runs `parec` or `pw-record` in a subprocess to capture from the audio sink monitor
-*   Uses a dedicated thread to read and process audio data
-*   Converts raw PCM data to numpy arrays for analysis
-*   Calculates amplitude values for each visualization bar
-*   Updates the tkinter Canvas with rectangles representing audio levels
-*   Updates approximately 60 times per second for smooth visuals
-
-**7. Threading Model**
+**6. Threading Model**
 
 The implementation uses multiple threads for responsiveness:
 
@@ -142,13 +128,13 @@ Thread synchronization occurs through:
 *   Tkinter's `after()` method for safe UI updates from background threads
 *   The adapter's asyncio event loop for async operations
 
-**8. Dependencies**
+**7. Dependencies**
 
 *   **Python Libraries:** `tkinter`, `tkinter.ttk`, `tkinterdnd2-universal`, `numpy`, `asyncio`
 *   **External Tools:** PulseAudio (`paplay`, `parec`) or PipeWire (`pw-record`)
 *   **Backend Dependencies:** Kokoro TTS, Whisper STT, Ollama
 
-**9. Launcher Integration**
+**8. Launcher Integration**
 
 The application includes a launcher script that provides:
 *   Command-line parameter handling
@@ -156,13 +142,8 @@ The application includes a launcher script that provides:
 *   Audio device configuration options
 *   Seamless integration with the existing CLI mode
 
-**10. Testing**
 
-The implementation includes test files for core components:
-*   `test_backend_adapter.py`: Tests for the GUI backend adapter
-*   `test_voice_assistant_gui.py`: Tests for the GUI components
-
-**11. Key Implementation Features**
+**9. Key Implementation Features**
 
 *   **Error Resilience**: Comprehensive error handling with automatic recovery
 *   **State Verification**: Checks that listening properly resumes after operations
