@@ -43,7 +43,7 @@ def clean_response(text: str) -> str:
 
 async def generate(
     prompt: str, 
-    model: str = "Lexi:latest", 
+    model: str = None, 
     system_prompt: str = "", 
     verbose: bool = False,
     timeout: float = 30.0  # Increase default timeout to 30s
@@ -52,7 +52,7 @@ async def generate(
     
     Args:
         prompt (str): The prompt to send to Ollama
-        model (str): The model to use
+        model (str, optional): The model to use. If None, uses default from config
         system_prompt (str): Optional system prompt
         verbose (bool): Whether to print debug info
         timeout (float): Timeout in seconds
@@ -60,11 +60,31 @@ async def generate(
     Returns:
         Optional[str]: Generated text or None if failed
     """
+    # Get model from config if not specified
+    if model is None:
+        model_config = ModelConfig()
+        model = model_config.get_default_model()
+    
     if verbose:
         print("\nGenerating response with Ollama")
         print(f"Model nickname: {model}")
     
     try:
+        # Get the actual model name from the config if this is a model nickname
+        model_config = ModelConfig()
+        model_info = model_config.get_model_config(model)
+        
+        # If we found a config for this model, use the actual name from the config
+        if model_info and 'name' in model_info:
+            actual_model = model_info['name']
+            if verbose:
+                print(f"Using actual model name from config: {actual_model}")
+        else:
+            # If no config found, use the provided model name directly
+            actual_model = model
+            if verbose:
+                print(f"No config found for {model}, using as-is")
+        
         # Add retry logic for better reliability
         max_retries = 2
         retry_delay = 2.0
@@ -77,7 +97,7 @@ async def generate(
                     loop.run_in_executor(
                         None,
                         lambda: ollama.chat(
-                            model=model,
+                            model=actual_model,
                             messages=[
                                 {
                                     'role': 'system',

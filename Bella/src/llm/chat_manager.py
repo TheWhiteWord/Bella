@@ -61,8 +61,8 @@ async def format_search_response(research_results: str) -> str:
 async def generate_chat_response(
     user_input: str, 
     history_context: str, 
-    model: str = "Lexi", 
-    timeout: float = 15.0,
+    model: str = None, 
+    timeout: float = 20.0,
     use_mcp: bool = False
 ) -> str:
     """Generate a chat response using local Ollama model.
@@ -70,7 +70,7 @@ async def generate_chat_response(
     Args:
         user_input (str): User's input text
         history_context (str): Previous conversation history
-        model (str): Model to use for generation
+        model (str, optional): Model to use for generation. If None, uses default from config
         timeout (float): Maximum time to wait for response
         use_mcp (bool): Whether MCP servers are active
         
@@ -78,6 +78,11 @@ async def generate_chat_response(
         str: Generated response or error message
     """
     try:
+        # Get model from config if not specified
+        if model is None:
+            model_config = ModelConfig()
+            model = model_config.get_default_model()
+            
         # If not a search request, proceed with normal chat response
         prompt_config = PromptConfig()
         

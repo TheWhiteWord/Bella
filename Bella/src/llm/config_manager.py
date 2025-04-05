@@ -65,7 +65,7 @@ class ModelConfig:
         Returns:
             str: Name of the default model
         """
-        return self.config.get('default_model', 'Lexi')
+        return self.config.get('default_model', 'Gemma')
 
 class PromptConfig:
     def __init__(self, config_path: str = None):

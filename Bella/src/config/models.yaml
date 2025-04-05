@@ -1,19 +1,18 @@
 models:
 
-  gemma3:
-    name: "Gemma3:latest"
-    description: "Google Gemma with vision capabilities"
+  Gemma:
+    name: "gemma3-tools:latest"
+    description: "Google Gemma with vision capabilities and tool use"
     parameters:
-      temperature: 0.6
       top_p: 0.9
       max_tokens: 100
       repetition_penalty: 1.05
 
 #MODELS TO TEST:
 
-  Nemo:
-    name: "Nemo:latest"
-    description: "Uncensored model, rp fine tuned, with tool use"
+  Mistral:
+    name: "Mistral:latest"
+    description: "Large model with tool use"
     parameters:
       temperature: 0.7
       top_p: 0.95
@@ -34,4 +33,4 @@ models:
       max_tokens: 100
       min_p: 0.05
 
-default_model: "Lexi"  # Default model to use
+default_model: "Gemma"  # Default model to use

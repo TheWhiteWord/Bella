@@ -25,7 +25,7 @@ class BellaWebSearchMCP:
         self, 
         server_name: str = "bella-web-search",
         enable_startup: bool = True,
-        model: str = "Lexi",  # Default model for search
+        model: str = "Gemma",  # Default model for search
         summary_model: str = "summary:latest"  # Specialized model for summarization
     ):
         """Initialize the Bella Web Search MCP server.

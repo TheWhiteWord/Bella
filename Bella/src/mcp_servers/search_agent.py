@@ -14,14 +14,14 @@ class SearchAgent:
     def __init__(self, 
                  max_depth: int = 2, 
                  max_links_per_page: int = 3,
-                 model: str = "Lexi"):
+                 model: str = "Gemma"):
         """
         Initialize search and summarization components.
         
         Args:
             max_depth: Maximum depth for recursive search (default: 2)
             max_links_per_page: Maximum links to follow per page (default: 3)
-            model: Ollama model name (default: "Lexi")
+            model: Ollama model name (default: "Gemma")
         """
         self.ddgs = DDGS()
         self.model = model
