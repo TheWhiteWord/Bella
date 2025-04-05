@@ -19,7 +19,7 @@ sys.path.insert(0, project_root)
 
 from src.utility.audio_session_manager import AudioSessionManager
 from src.utility.buffered_recorder import BufferedRecorder, create_audio_stream
-from src.llm.chat_manager import generate_chat_response, get_available_models
+from src.llm.chat_manager import generate_chat_response, get_available_models, get_memory_manager
 from src.audio.kokoro_tts.kokoro_tts import KokoroTTSWrapper
 from src.llm.config_manager import ModelConfig
 
@@ -113,12 +113,14 @@ async def init_tts_engine(sink_name: Optional[str] = None) -> KokoroTTSWrapper:
         print(f"Error initializing TTS engine: {e}")
         raise
 
-async def main_interaction_loop(model: str = None, sink_name: Optional[str] = None) -> None:
+async def main_interaction_loop(model: str = None, sink_name: Optional[str] = None, 
+                               enable_memory: bool = True) -> None:
     """Main loop for capturing speech, generating responses, and playing audio.
     
     Args:
         model (str, optional): Model nickname for Ollama. If None, uses default from config
         sink_name (str, optional): Name of PulseAudio sink to use for output
+        enable_memory (bool): Whether to enable memory capabilities
     """
     print("\nInitializing voice assistant components...")
     tts_engine = None
@@ -129,6 +131,14 @@ async def main_interaction_loop(model: str = None, sink_name: Optional[str] = No
         if model is None:
             model_config = ModelConfig()
             model = model_config.get_default_model()
+            
+        # Initialize memory manager if enabled
+        memory_mgr = None
+        if enable_memory:
+            memory_mgr = get_memory_manager()
+            print("\nMemory system initialized with Praison framework.")
+        else:
+            print("\nMemory system disabled.")
             
         # Initialize TTS with fallback to CPU if CUDA fails
         try:
@@ -158,10 +168,12 @@ async def main_interaction_loop(model: str = None, sink_name: Optional[str] = No
         
         print(f"\nUsing model: {model}")
 
-        await tts_engine.generate_speech("Voice Assistant ready! Start speaking when ready.")
+        welcome_message = "Voice Assistant ready! Start speaking when ready."
+        if enable_memory:
+            welcome_message = "Voice Assistant with memory ready! I can now remember our conversations. Start speaking when ready."
+        
+        await tts_engine.generate_speech(welcome_message)
         print("\nSay 'stop' or 'exit' to end the conversation.\n")
-
-        conversation_history = []  # Store history of user inputs and assistant responses
         
         # Create audio session manager with debug mode
         audio_manager = AudioSessionManager(gap_timeout=2.0, debug=True)
@@ -173,18 +185,21 @@ async def main_interaction_loop(model: str = None, sink_name: Optional[str] = No
         # Initialize audio settings
         recorder.initialize_audio_settings()
         
+        # For legacy support when memory is disabled
+        conversation_history = []
+        
         while True:
             try:
                 # Ensure recording is fully stopped before starting new interaction
                 if recorder.is_recording:
                     recorder.should_stop = True
                     recorder.is_recording = False
-                    await audio_manager.pause_session()  # Add await here
+                    await audio_manager.pause_session()
                     await asyncio.sleep(0.2)  # Give time for everything to stop
                 
                 # Reset states for new interaction
                 recorder.reset_state()
-                await audio_manager.resume_session()  # Add await here
+                await audio_manager.resume_session()
                 
                 # Start recording
                 print("\nWaiting for voice...")
@@ -208,14 +223,20 @@ async def main_interaction_loop(model: str = None, sink_name: Optional[str] = No
                 print("\nRecording paused...")
                 recorder.should_stop = True
                 recorder.is_recording = False
-                await audio_manager.pause_session()  # Add await here
+                await audio_manager.pause_session()
                 await asyncio.sleep(0.3)  # Give more time to ensure stop
 
                 # Format conversation history for context
                 history_text = ""
-                for i, entry in enumerate(conversation_history[-3:]):
-                    role = "User" if i % 2 == 0 else "Assistant"
-                    history_text += f"{role}: {entry}\n"
+                
+                if enable_memory and memory_mgr:
+                    # Use memory manager for conversation history
+                    history_text = memory_mgr.get_conversation_history(last_n=5)
+                else:
+                    # Legacy conversation history handling
+                    for i, entry in enumerate(conversation_history[-6:] if len(conversation_history) > 6 else conversation_history):
+                        role = "User" if i % 2 == 0 else "Assistant"
+                        history_text += f"{role}: {entry}\n"
 
                 # Generate response using local Ollama model
                 print(f"\nThinking... (using {model})")
@@ -230,9 +251,10 @@ async def main_interaction_loop(model: str = None, sink_name: Optional[str] = No
                 
                 print(f"Assistant: {response}")
 
-                # Update conversation history
-                conversation_history.append(transcribed_text)  # User input
-                conversation_history.append(response)  # Assistant response
+                # Update legacy conversation history if memory is not enabled
+                if not enable_memory:
+                    conversation_history.append(transcribed_text)  # User input
+                    conversation_history.append(response)  # Assistant response
 
                 # Convert response to speech and play it
                 print("\nGenerating speech...")
@@ -250,7 +272,7 @@ async def main_interaction_loop(model: str = None, sink_name: Optional[str] = No
                 print("\nRecording resumed...")
                 recorder.should_stop = False
                 recorder.start_recording()
-                await audio_manager.resume_session()  # Add await here
+                await audio_manager.resume_session()
                 print("\n" + "="*50)
                 
             except Exception as e:
@@ -290,6 +312,11 @@ if __name__ == "__main__":
         type=str,
         help="Name of PulseAudio sink to use"
     )
+    parser.add_argument(
+        "--no-memory",
+        action="store_true",
+        help="Disable memory capabilities"
+    )
     
     args = parser.parse_args()
     
@@ -298,7 +325,7 @@ if __name__ == "__main__":
             list_audio_devices()
             sys.exit(0)
             
-        asyncio.run(main_interaction_loop(args.model, args.sink))
+        asyncio.run(main_interaction_loop(args.model, args.sink, not args.no_memory))
     except KeyboardInterrupt:
         print("\nStopped by user.")
     except Exception as e:
