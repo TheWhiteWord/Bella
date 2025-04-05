@@ -146,15 +146,39 @@ async def get_available_models() -> Dict[str, Dict[str, Any]]:
         Dict[str, Dict[str, Any]]: Dictionary of model info including availability status
     """
     config_models = ModelConfig().list_models()
-    ollama_models = await list_available_models()
+    try:
+        ollama_models = await list_available_models()
+        logging.info(f"Ollama models found: {ollama_models}")
+    except Exception as e:
+        logging.error(f"Failed to get Ollama models: {e}")
+        ollama_models = []
     
     # Add runtime availability status
     models_status = {}
     for nickname, desc in config_models.items():
-        # Check if either the nickname or the actual model name exists in ollama_models
-        model_exists = any(m.lower().startswith(nickname.lower()) for m in ollama_models)
+        # Get the actual model name from config if available
+        actual_model_name = desc.get("name", nickname) if isinstance(desc, dict) else nickname
+        
+        # Check for model availability with more flexible matching
+        model_exists = False
+        for ollama_model in ollama_models:
+            # Compare with nickname
+            if ollama_model.lower() == nickname.lower():
+                model_exists = True
+                break
+                
+            # Compare with actual model name
+            if isinstance(actual_model_name, str):
+                # Clean up model name for comparison (remove tags like :latest)
+                clean_actual = actual_model_name.split(':')[0].lower()
+                clean_ollama = ollama_model.split(':')[0].lower()
+                
+                if clean_ollama == clean_actual:
+                    model_exists = True
+                    break
+        
         models_status[nickname] = {
-            'description': desc,
+            'description': desc.get("description", str(desc)) if isinstance(desc, dict) else str(desc),
             'available': model_exists
         }
     
