@@ -1,6 +1,6 @@
 import pytest
 import asyncio
-from src.mcp_servers.search_agent import SearchAgent
+from Bella.src.agents.search_agent import SearchAgent
 from src.llm.chat_manager import is_search_request, format_search_response
 
 @pytest.mark.asyncio
