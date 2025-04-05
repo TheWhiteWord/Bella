@@ -1,7 +1,9 @@
-"""MCP Servers package (Placeholder).
+"""MCP Server integration modules for Bella assistant.
 
-This package previously contained MCP server implementations.
-It now contains placeholder implementations for backward compatibility.
+This package contains various Model Context Protocol (MCP) server integrations
+that provide additional capabilities to the Bella assistant.
 """
-from .basic_memory_MCP import BellaMemoryMCP
-from .web_search_mcp import BellaWebSearchMCP
+
+from .memory_agent import MemoryAgent
+
+__all__ = ["MemoryAgent"]

@@ -1,8 +1,11 @@
 servers:
   memory:
-    enabled: false
+    enabled: true
     params:
-      storage_dir: ~/bella-memory
+      model: ollama/Llama3B-uncensored:latest
+      memory_dir: ~/basic-memory
+      verbose: false
+      default_context_depth: 2
     type: memory
   web_search:
     enabled: false
