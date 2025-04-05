@@ -11,7 +11,6 @@ from typing import Dict, Any, Tuple, List, Optional
 
 from .config_manager import ModelConfig, PromptConfig
 from .ollama_client import generate, list_available_models
-from src.utility.mcp_server_manager import MCPServerManager
 
 async def format_search_response(research_results: str) -> str:
     """Format search results in a conversational manner.
@@ -65,8 +64,7 @@ async def generate_chat_response(
     user_input: str, 
     history_context: str, 
     model: str = None, 
-    timeout: float = 20.0,
-    use_mcp: bool = False
+    timeout: float = 20.0
 ) -> str:
     """Generate a chat response using local Ollama model.
     
@@ -75,7 +73,6 @@ async def generate_chat_response(
         history_context (str): Previous conversation history
         model (str, optional): Model to use for generation. If None, uses default from config
         timeout (float): Maximum time to wait for response
-        use_mcp (bool): Whether MCP servers are active
         
     Returns:
         str: Generated response or error message
@@ -88,32 +85,7 @@ async def generate_chat_response(
             
         # If not a search request, proceed with normal chat response
         prompt_config = PromptConfig()
-        
-        # Use MCP-aware system prompt if MCP is active
-        if use_mcp:
-            system_prompt = prompt_config.get_system_prompt("system_with_mcp")
-            
-            # Get available MCP tools if MCP is enabled
-            mcp_tools = None
-            try:
-                mcp_manager = MCPServerManager()
-                mcp_servers = mcp_manager.get_active_servers()
-                if mcp_servers:
-                    # Collect all available tools from MCP servers
-                    mcp_tools = []
-                    for server in mcp_servers:
-                        if hasattr(server, 'get_tools_schema'):
-                            server_tools = server.get_tools_schema()
-                            if server_tools:
-                                mcp_tools.extend(server_tools)
-                    
-                    if mcp_tools:
-                        logging.info(f"Found {len(mcp_tools)} MCP tools to provide to the model")
-            except Exception as e:
-                logging.error(f"Error getting MCP tools: {str(e)}")
-        else:
-            system_prompt = prompt_config.get_system_prompt()
-            mcp_tools = None
+        system_prompt = prompt_config.get_system_prompt()
         
         print(f"Attempting to use model: {model}")  # Debug line
         
@@ -122,8 +94,7 @@ async def generate_chat_response(
             model=model,
             system_prompt=system_prompt,
             verbose=True,
-            timeout=timeout,
-            mcp_tools=mcp_tools  # Pass MCP tools to the generator
+            timeout=timeout
         )
         
         if not response:

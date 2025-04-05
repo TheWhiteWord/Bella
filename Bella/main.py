@@ -22,7 +22,6 @@ from src.utility.buffered_recorder import BufferedRecorder, create_audio_stream
 from src.llm.chat_manager import generate_chat_response, get_available_models
 from src.audio.kokoro_tts.kokoro_tts import KokoroTTSWrapper
 from src.llm.config_manager import ModelConfig
-from src.utility.mcp_server_manager import MCPServerManager 
 
 # Path to the search signal file used by web_search_mcp
 SEARCH_SIGNAL_PATH = os.path.join(tempfile.gettempdir(), "bella_search_status.json")
@@ -114,18 +113,16 @@ async def init_tts_engine(sink_name: Optional[str] = None) -> KokoroTTSWrapper:
         print(f"Error initializing TTS engine: {e}")
         raise
 
-async def main_interaction_loop(model: str = None, sink_name: Optional[str] = None, use_mcp: bool = True) -> None:
+async def main_interaction_loop(model: str = None, sink_name: Optional[str] = None) -> None:
     """Main loop for capturing speech, generating responses, and playing audio.
     
     Args:
         model (str, optional): Model nickname for Ollama. If None, uses default from config
         sink_name (str, optional): Name of PulseAudio sink to use for output
-        use_mcp (bool): Whether to use MCP servers for enhanced capabilities
     """
     print("\nInitializing voice assistant components...")
     tts_engine = None
     recorder = None
-    mcp_manager = None  # Initialize to None to avoid reference errors
     
     try:
         # Get model from config if not specified
@@ -160,16 +157,6 @@ async def main_interaction_loop(model: str = None, sink_name: Optional[str] = No
             print(f"{status} {model_id}: {info['description']}")
         
         print(f"\nUsing model: {model}")
-
-        # Initialize MCP servers if enabled
-        if use_mcp:
-            print("\nInitializing MCP servers...")
-            mcp_manager = MCPServerManager()
-            started_servers = await mcp_manager.start_all_enabled()
-            if started_servers:
-                print(f"Started MCP servers: {', '.join(started_servers)}")
-            else:
-                print("No MCP servers enabled. To enable, run: python -m src.mcp.mcp_manager --list")
 
         await tts_engine.generate_speech("Voice Assistant ready! Start speaking when ready.")
         print("\nSay 'stop' or 'exit' to end the conversation.\n")
@@ -233,48 +220,13 @@ async def main_interaction_loop(model: str = None, sink_name: Optional[str] = No
                 # Generate response using local Ollama model
                 print(f"\nThinking... (using {model})")
 
-                # Check if there's an active search request via the signal file
-                search_signal = await check_search_signal()
-                
-                if search_signal and use_mcp:
-                    # If a search is already in progress, acknowledge it first
-                    print(f"\nDetected active search from MCP: {search_signal.get('query', 'unknown query')}")
-                    
-                    # Use a simple fixed acknowledgment instead of generating one
-                    search_acknowledgment = "Let me look that up for you!"
-                    
-                    print(f"Assistant: {search_acknowledgment}")
-                    
-                    # Speak the acknowledgment before continuing with search
-                    await tts_engine.generate_speech(search_acknowledgment)
-                    
-                    # Wait for search to complete
-                    print("\nWaiting for search to complete...")
-                    result = await wait_for_search_completion(timeout=30.0)
-                    
-                    if result:
-                        print(f"\nSearch completed with status: {result.get('status', 'unknown')}")
-                        
-                        # Generate response that incorporates search results
-                        response = await generate_chat_response(
-                            transcribed_text,
-                            history_text,
-                            model,
-                            timeout=15.0,
-                            use_mcp=use_mcp
-                        )
-                    else:
-                        # Search timed out or failed
-                        response = "I'm sorry, but my search is taking too long. Let me answer based on what I know."
-                else:
-                    # No active search detected, generate normal response
-                    response = await generate_chat_response(
-                        transcribed_text, 
-                        history_text, 
-                        model, 
-                        timeout=15.0,
-                        use_mcp=use_mcp
-                    )
+                # Generate normal response
+                response = await generate_chat_response(
+                    transcribed_text, 
+                    history_text, 
+                    model, 
+                    timeout=15.0
+                )
                 
                 print(f"Assistant: {response}")
 
@@ -318,8 +270,6 @@ async def main_interaction_loop(model: str = None, sink_name: Optional[str] = No
             recorder.stop_recording()
         if tts_engine:
             tts_engine.stop()
-        if mcp_manager:  # Only try to stop if it was initialized
-            await mcp_manager.stop_all()
         print("\nGoodbye!")
         
 
@@ -340,11 +290,6 @@ if __name__ == "__main__":
         type=str,
         help="Name of PulseAudio sink to use"
     )
-    parser.add_argument(
-        "--no-mcp",
-        action="store_true",
-        help="Disable MCP server integration"
-    )
     
     args = parser.parse_args()
     
@@ -353,7 +298,7 @@ if __name__ == "__main__":
             list_audio_devices()
             sys.exit(0)
             
-        asyncio.run(main_interaction_loop(args.model, args.sink, not args.no_mcp))
+        asyncio.run(main_interaction_loop(args.model, args.sink))
     except KeyboardInterrupt:
         print("\nStopped by user.")
     except Exception as e:
