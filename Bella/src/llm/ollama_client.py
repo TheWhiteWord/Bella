@@ -42,104 +42,88 @@ def clean_response(text: str) -> str:
     return text.strip()
 
 async def generate(
-    prompt: str,
-    model: str = None,
-    system_prompt: str = None,
+    prompt: str, 
+    model: str = "Lexi:latest", 
+    system_prompt: str = "", 
     verbose: bool = False,
-    config_path: str = None,
-    timeout: float = 15.0
+    timeout: float = 30.0  # Increase default timeout to 30s
 ) -> Optional[str]:
-    """Generate a response using local Ollama model asynchronously.
+    """Generate a response from Ollama.
     
     Args:
-        prompt (str): The user prompt to generate a response for
-        model (str, optional): Model nickname from config. If None, uses default model
-        system_prompt (str, optional): System prompt that defines AI behavior. Required
-        verbose (bool, optional): Whether to print debug information
-        config_path (str, optional): Path to models.yaml config file
-        timeout (float, optional): Timeout in seconds for generation
+        prompt (str): The prompt to send to Ollama
+        model (str): The model to use
+        system_prompt (str): Optional system prompt
+        verbose (bool): Whether to print debug info
+        timeout (float): Timeout in seconds
         
     Returns:
-        Optional[str]: Generated response or None if generation failed
+        Optional[str]: Generated text or None if failed
     """
+    if verbose:
+        print("\nGenerating response with Ollama")
+        print(f"Model nickname: {model}")
+    
     try:
-        if not system_prompt:
-            raise ValueError("system_prompt is required")
-            
-        # Load model config
-        model_config = ModelConfig(config_path)
-        if not model:
-            model = model_config.get_default_model()
-            print(f"Using default model: {model}")
-            
-        model_info = model_config.get_model_config(model)
-        if not model_info:
-            print(f"No configuration found for model: {model}")
-            return None
-            
-        actual_model_name = model_info['name']
+        # Add retry logic for better reliability
+        max_retries = 2
+        retry_delay = 2.0
         
-        # Check if model is actually available in Ollama
-        available_models = await list_available_models()
-        if not available_models:
-            print("Failed to get list of available models from Ollama")
-            return None
-            
-        print(f"\n=== Model Configuration ===")
-        print(f"Requested model: {model}")
-        print(f"Model config found: {bool(model_info)}")
-        print(f"Actual model name: {actual_model_name}")
-        print(f"Available models: {available_models}")
-        print(f"Model available: {actual_model_name in available_models}")
-        print(f"Parameters: {model_info.get('parameters', {})}")
-        print("========================\n")
-        
-        if actual_model_name not in available_models:
-            print(f"Model {actual_model_name} is not available in Ollama")
-            return None
-            
-        if verbose:
-            print(f"\nGenerating response with Ollama")
-            print(f"Model nickname: {model}")
-            print(f"Actual model name: {actual_model_name}")
-            print(f"Parameters: {model_info['parameters']}")
-            
-        # Generate response using ollama library with timeout
-        try:
-            response_future = asyncio.create_task(
-                asyncio.to_thread(
-                    ollama.chat,
-                    model=actual_model_name,
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": prompt}
-                    ],
-                    options=model_info.get('parameters', {})
+        for attempt in range(max_retries + 1):
+            try:
+                # Use asyncio.wait_for to enforce timeout
+                loop = asyncio.get_event_loop()
+                result = await asyncio.wait_for(
+                    loop.run_in_executor(
+                        None,
+                        lambda: ollama.chat(
+                            model=model,
+                            messages=[
+                                {
+                                    'role': 'system',
+                                    'content': system_prompt
+                                },
+                                {
+                                    'role': 'user',
+                                    'content': prompt
+                                }
+                            ],
+                            stream=False,
+                            options={
+                                "num_predict": 512  # Limit response length
+                            }
+                        )
+                    ),
+                    timeout=timeout
                 )
-            )
-            
-            response = await asyncio.wait_for(response_future, timeout=timeout)
-            
-            if not response or 'message' not in response:
-                if verbose:
-                    print("Received empty or invalid response from Ollama")
-                return None
                 
-            response_text = clean_response(response['message']['content'].strip())
-            return response_text
-            
-        except asyncio.TimeoutError:
-            if verbose:
-                print(f"LLM response timed out after {timeout}s")
-            return None
-            
+                if verbose:
+                    print(f"Actual model name: {result.get('model', 'unknown')}")
+                
+                # Extract and return the response content
+                if "message" in result and "content" in result["message"]:
+                    return result["message"]["content"].strip()
+                else:
+                    print("Unexpected response format from Ollama")
+                    return None
+                    
+            except asyncio.TimeoutError:
+                if attempt < max_retries:
+                    print(f"LLM response timed out after {timeout}s, retrying ({attempt+1}/{max_retries})...")
+                    await asyncio.sleep(retry_delay)
+                else:
+                    print(f"LLM response timed out after {timeout}s")
+                    return None
+            except Exception as e:
+                if attempt < max_retries:
+                    print(f"Error generating response: {e}, retrying...")
+                    await asyncio.sleep(retry_delay)
+                else:
+                    print(f"Error generating response after {max_retries} retries: {e}")
+                    return None
+                
     except Exception as e:
-        print(f"Error generating response: {str(e)}")
-        print(f"Attempted to use model nickname: {model}")
-        if 'model_info' in locals():
-            print(f"Model info: {model_info}")
-        if "connection" in str(e).lower():
-            print("Make sure Ollama is running (ollama serve)")
+        print(f"Unexpected error in generate: {e}")
         return None
 
 async def list_available_models() -> List[str]:

@@ -2,7 +2,7 @@
 import asyncio
 import datetime
 from pathlib import Path
-from src.agents.search_agent import SearchAgent
+from src.mcp_servers.search_agent import SearchAgent
 from src.llm.chat_manager import generate_chat_response
 
 async def test_search_and_save():

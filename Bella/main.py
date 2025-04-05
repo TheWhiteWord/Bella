@@ -8,6 +8,8 @@ import sys
 import asyncio
 import argparse
 import subprocess
+import json
+import tempfile
 from typing import Dict, Any, Optional, Tuple, List
 import re
 
@@ -17,10 +19,13 @@ sys.path.insert(0, project_root)
 
 from src.utility.audio_session_manager import AudioSessionManager
 from src.utility.buffered_recorder import BufferedRecorder, create_audio_stream
-from src.llm.chat_manager import generate_chat_response, get_available_models, format_search_response
+from src.llm.chat_manager import generate_chat_response, get_available_models
 from src.audio.kokoro_tts.kokoro_tts import KokoroTTSWrapper
 from src.llm.config_manager import ModelConfig
-from src.agents.search_agent import SearchAgent
+from src.utility.mcp_server_manager import MCPServerManager 
+
+# Path to the search signal file used by web_search_mcp
+SEARCH_SIGNAL_PATH = os.path.join(tempfile.gettempdir(), "bella_search_status.json")
 
 def list_audio_devices() -> None:
     """List all available PulseAudio output sinks."""
@@ -37,6 +42,51 @@ def list_audio_devices() -> None:
     except subprocess.CalledProcessError as e:
         print(f"Error listing audio devices: {e}")
         sys.exit(1)
+
+async def check_search_signal() -> Optional[Dict[str, Any]]:
+    """Check if a search operation is in progress by reading the signal file.
+    
+    Returns:
+        Optional[Dict[str, Any]]: Search signal data if a search is in progress
+    """
+    if os.path.exists(SEARCH_SIGNAL_PATH):
+        try:
+            with open(SEARCH_SIGNAL_PATH, "r") as f:
+                signal_data = json.load(f)
+                
+            # Only return if status is "searching" (active search)
+            if signal_data.get("status") == "searching":
+                return signal_data
+        except:
+            pass
+    return None
+
+async def wait_for_search_completion(timeout: float = 30.0) -> Optional[Dict[str, Any]]:
+    """Wait for a search operation to complete.
+    
+    Args:
+        timeout: Maximum time to wait for completion in seconds
+        
+    Returns:
+        Optional[Dict[str, Any]]: Final search status or None if timed out
+    """
+    start_time = asyncio.get_event_loop().time()
+    
+    while (asyncio.get_event_loop().time() - start_time) < timeout:
+        if os.path.exists(SEARCH_SIGNAL_PATH):
+            try:
+                with open(SEARCH_SIGNAL_PATH, "r") as f:
+                    signal_data = json.load(f)
+                    
+                # If status is "completed" or "failed", search is done
+                if signal_data.get("status") in ["completed", "failed"]:
+                    return signal_data
+            except:
+                pass
+                
+        await asyncio.sleep(0.5)  # Check twice per second
+        
+    return None  # Timed out
 
 async def init_tts_engine(sink_name: Optional[str] = None) -> KokoroTTSWrapper:
     """Initialize the Kokoro TTS engine.
@@ -64,16 +114,18 @@ async def init_tts_engine(sink_name: Optional[str] = None) -> KokoroTTSWrapper:
         print(f"Error initializing TTS engine: {e}")
         raise
 
-async def main_interaction_loop(model: str = None, sink_name: Optional[str] = None) -> None:
+async def main_interaction_loop(model: str = None, sink_name: Optional[str] = None, use_mcp: bool = True) -> None:
     """Main loop for capturing speech, generating responses, and playing audio.
     
     Args:
         model (str, optional): Model nickname for Ollama. If None, uses default from config
         sink_name (str, optional): Name of PulseAudio sink to use for output
+        use_mcp (bool): Whether to use MCP servers for enhanced capabilities
     """
     print("\nInitializing voice assistant components...")
     tts_engine = None
     recorder = None
+    mcp_manager = None  # Initialize to None to avoid reference errors
     
     try:
         # Get model from config if not specified
@@ -81,7 +133,24 @@ async def main_interaction_loop(model: str = None, sink_name: Optional[str] = No
             model_config = ModelConfig()
             model = model_config.get_default_model()
             
-        tts_engine = await init_tts_engine(sink_name)
+        # Initialize TTS with fallback to CPU if CUDA fails
+        try:
+            tts_engine = await init_tts_engine(sink_name)
+        except Exception as e:
+            print(f"\nError initializing TTS engine: {e}")
+            print("\nTrying to fall back to CPU mode...")
+            try:
+                # Try again with explicit CPU device
+                tts_engine = KokoroTTSWrapper(
+                    default_voice="af_bella",
+                    speed=0.9,  # Slightly slower for better clarity
+                    sink_name=sink_name,
+                    device="cpu"  # Force CPU mode
+                )
+                await tts_engine.generate_speech("TTS system initialized in CPU mode.")
+            except Exception as second_e:
+                print(f"\nFallback TTS initialization also failed: {second_e}")
+                raise  # Re-raise the exception if both attempts fail
         
         # Print available models
         models = await get_available_models()
@@ -91,6 +160,17 @@ async def main_interaction_loop(model: str = None, sink_name: Optional[str] = No
             print(f"{status} {model_id}: {info['description']}")
         
         print(f"\nUsing model: {model}")
+
+        # Initialize MCP servers if enabled
+        if use_mcp:
+            print("\nInitializing MCP servers...")
+            mcp_manager = MCPServerManager()
+            started_servers = await mcp_manager.start_all_enabled()
+            if started_servers:
+                print(f"Started MCP servers: {', '.join(started_servers)}")
+            else:
+                print("No MCP servers enabled. To enable, run: python -m src.mcp.mcp_manager --list")
+
         await tts_engine.generate_speech("Voice Assistant ready! Start speaking when ready.")
         print("\nSay 'stop' or 'exit' to end the conversation.\n")
 
@@ -112,12 +192,12 @@ async def main_interaction_loop(model: str = None, sink_name: Optional[str] = No
                 if recorder.is_recording:
                     recorder.should_stop = True
                     recorder.is_recording = False
-                    audio_manager.pause_session()
+                    await audio_manager.pause_session()  # Add await here
                     await asyncio.sleep(0.2)  # Give time for everything to stop
                 
                 # Reset states for new interaction
                 recorder.reset_state()
-                audio_manager.resume_session()
+                await audio_manager.resume_session()  # Add await here
                 
                 # Start recording
                 print("\nWaiting for voice...")
@@ -141,7 +221,7 @@ async def main_interaction_loop(model: str = None, sink_name: Optional[str] = No
                 print("\nRecording paused...")
                 recorder.should_stop = True
                 recorder.is_recording = False
-                audio_manager.pause_session()
+                await audio_manager.pause_session()  # Add await here
                 await asyncio.sleep(0.3)  # Give more time to ensure stop
 
                 # Format conversation history for context
@@ -152,25 +232,51 @@ async def main_interaction_loop(model: str = None, sink_name: Optional[str] = No
 
                 # Generate response using local Ollama model
                 print(f"\nThinking... (using {model})")
-                response = await generate_chat_response(transcribed_text, history_text, model, timeout=15.0)
-                print(f"Assistant: {response}")
+
+                # Check if there's an active search request via the signal file
+                search_signal = await check_search_signal()
                 
-                # Check if this is a search acknowledgment
-                if "[SEARCH_INITIATED]" in response:
-                    # Extract and speak the acknowledgment
-                    acknowledgment = response.split("[SEARCH_INITIATED]")[0].strip()
-                    print(f"Assistant: {acknowledgment}")
-                    await tts_engine.generate_speech(acknowledgment)
+                if search_signal and use_mcp:
+                    # If a search is already in progress, acknowledge it first
+                    print(f"\nDetected active search from MCP: {search_signal.get('query', 'unknown query')}")
                     
-                    # Extract the search query and perform the search
-                    search_query = re.sub(r'^(?:search|look up|find|tell me about)\s+(?:for|about)?\s*', '', transcribed_text, flags=re.IGNORECASE)
-                    search_agent = SearchAgent(model=model)
-                    research_results = await search_agent.research_topic(search_query)
+                    # Use a simple fixed acknowledgment instead of generating one
+                    search_acknowledgment = "Let me look that up for you!"
                     
-                    # Format results conversationally
-                    response = await format_search_response(research_results)
+                    print(f"Assistant: {search_acknowledgment}")
+                    
+                    # Speak the acknowledgment before continuing with search
+                    await tts_engine.generate_speech(search_acknowledgment)
+                    
+                    # Wait for search to complete
+                    print("\nWaiting for search to complete...")
+                    result = await wait_for_search_completion(timeout=30.0)
+                    
+                    if result:
+                        print(f"\nSearch completed with status: {result.get('status', 'unknown')}")
+                        
+                        # Generate response that incorporates search results
+                        response = await generate_chat_response(
+                            transcribed_text,
+                            history_text,
+                            model,
+                            timeout=15.0,
+                            use_mcp=use_mcp
+                        )
+                    else:
+                        # Search timed out or failed
+                        response = "I'm sorry, but my search is taking too long. Let me answer based on what I know."
                 else:
-                    print(f"Assistant: {response}")
+                    # No active search detected, generate normal response
+                    response = await generate_chat_response(
+                        transcribed_text, 
+                        history_text, 
+                        model, 
+                        timeout=15.0,
+                        use_mcp=use_mcp
+                    )
+                
+                print(f"Assistant: {response}")
 
                 # Update conversation history
                 conversation_history.append(transcribed_text)  # User input
@@ -180,6 +286,8 @@ async def main_interaction_loop(model: str = None, sink_name: Optional[str] = No
                 print("\nGenerating speech...")
                 try:
                     await tts_engine.generate_speech(response)
+                    # Add a delay after speech to ensure TTS fully completes before resuming recording
+                    await asyncio.sleep(0.5)
                 except Exception as e:
                     print(f"\nError during speech generation: {e}")
                     continue
@@ -190,7 +298,7 @@ async def main_interaction_loop(model: str = None, sink_name: Optional[str] = No
                 print("\nRecording resumed...")
                 recorder.should_stop = False
                 recorder.start_recording()
-                audio_manager.resume_session()
+                await audio_manager.resume_session()  # Add await here
                 print("\n" + "="*50)
                 
             except Exception as e:
@@ -210,6 +318,10 @@ async def main_interaction_loop(model: str = None, sink_name: Optional[str] = No
             recorder.stop_recording()
         if tts_engine:
             tts_engine.stop()
+        if mcp_manager:  # Only try to stop if it was initialized
+            await mcp_manager.stop_all()
+        print("\nGoodbye!")
+        
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Voice Assistant with Local LLM and Kokoro TTS")
@@ -228,6 +340,11 @@ if __name__ == "__main__":
         type=str,
         help="Name of PulseAudio sink to use"
     )
+    parser.add_argument(
+        "--no-mcp",
+        action="store_true",
+        help="Disable MCP server integration"
+    )
     
     args = parser.parse_args()
     
@@ -236,7 +353,7 @@ if __name__ == "__main__":
             list_audio_devices()
             sys.exit(0)
             
-        asyncio.run(main_interaction_loop(args.model, args.sink))
+        asyncio.run(main_interaction_loop(args.model, args.sink, not args.no_mcp))
     except KeyboardInterrupt:
         print("\nStopped by user.")
     except Exception as e:

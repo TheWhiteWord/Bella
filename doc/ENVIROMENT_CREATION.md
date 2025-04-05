@@ -22,9 +22,9 @@ conda activate bella
 ### 2. Install CUDA Toolkit
 
 ```bash
-# Install CUDA toolkit 12.4 from NVIDIA channel
+# Install CUDA toolkit 12.1 from NVIDIA channel
 
-conda install -c nvidia cuda-toolkit=12.4
+conda install -c nvidia cuda-toolkit=12.1
 ```
  Status: CUDA toolkit installed
 

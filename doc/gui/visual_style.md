@@ -24,30 +24,19 @@ Break down how to achieve the visual style using Tkinter. We'll need to use a co
         *   `display_canvas = tk.Canvas(root, bg="#FFCDD2", height=100, borderwidth=2, relief=tk.SUNKEN)` (Approx pink, adjust height). Add `highlightthickness=0` to remove the default focus border if needed.
         *   Pack this canvas into the main frame/window.
 
-3.  **Waveform:**
-    *   **Visual:** Vertical dark red bars, varying heights, rounded tops.
-    *   **Tkinter (on the `Canvas`):**
-        *   Use `display_canvas.create_rectangle(x0, y0, x1, y1, fill="#A00000", outline="")`.
-        *   You'll need a function to draw multiple rectangles with calculated positions and heights.
-        *   **Rounded Tops:** `create_rectangle` doesn't support this directly.
-            *   *Option 1 (Easier):* Use flat-top rectangles. It will still look like a waveform.
-            *   *Option 2 (Harder):* Draw a rectangle for the main body and then a small `create_oval` or `create_arc` on top for the rounded part. This is complex to position correctly.
-            *   *Option 3 (Visual Trick):* Make the bars slightly narrower than the spacing, giving a visual separation that implies shape.
-        *   **Animation:** You'll need a function that periodically clears the canvas (`display_canvas.delete("waveform_bar")`) and redraws the bars with new random heights when in "Listening" or "Speaking" states. Use tags like `"waveform_bar"` for easy deletion.
-
-4.  **Status Text ("Thinking..."):**
+3.  **Status Text ("Thinking..."):**
     *   **Visual:** Simple text label below the display.
     *   **Tkinter:**
         *   `status_label = ttk.Label(root, text="Initializing...", font=("Helvetica", 10))` (or `tk.Label`)
         *   Pack it below the display canvas. Use `anchor=tk.W` (west) or `tk.CENTER` for alignment.
 
-5.  **Button Area (Frame):**
+4.  **Button Area (Frame):**
     *   **Visual:** Holds the three controls horizontally.
     *   **Tkinter:**
         *   `button_frame = ttk.Frame(root)` (or `tk.Frame`)
         *   Pack it below the status label. Set its background to match the main green if needed: `button_frame.config(style="Green.TFrame")` after defining the style.
 
-6.  **Context Button/Indicator:**
+5.  **Context Button/Indicator:**
     *   **Visual:** Rectangle, black border, green fill when ON, small inner green bar. Clickable toggle.
     *   **Tkinter (Best Approach: Image Button):**
         *   Create two images externally (e.g., `context_on.png`, `context_off.png`) that look exactly like the button in both states. Make sure they have transparency if needed.
@@ -69,7 +58,7 @@ Break down how to achieve the visual style using Tkinter. We'll need to use a co
             ```
         *   In `toggle_context` and `_load_context_thread`, change the button's image: `self.context_button.config(image=self.context_img_on)` or `self.context_img_off`.
 
-7.  **Download Button:**
+6.  **Download Button:**
     *   **Visual:** Square-ish button with download icon.
     *   **Tkinter (Image Button):**
         *   Create or find a download icon (`download_icon.png`).
@@ -89,7 +78,7 @@ Break down how to achieve the visual style using Tkinter. We'll need to use a co
             ```
         *   Update the `image` and `state` when enabling/disabling.
 
-8.  **Record Button:**
+7.  **Record Button:**
     *   **Visual:** Red circular button.
     *   **Tkinter (Image Button):**
         *   Create a red circle image (`record_button.png`), maybe one slightly different for a pressed state (`record_button_active.png`) or disabled state (`record_button_disabled.png`).
@@ -143,9 +132,7 @@ class VoiceApp(TkinterDnD.Tk): # Or tk.Tk if no DnD
         self.display_canvas = tk.Canvas(main_frame, bg=DISPLAY_PINK, height=100,
                                         borderwidth=2, relief=tk.SUNKEN, highlightthickness=0)
         self.display_canvas.pack(fill=tk.X, pady=(0, 10))
-        # Initial waveform draw? Or wait until listening
-        self.draw_waveform(static=True) # Draw a flat line initially
-
+        
         # --- Status Label ---
         self.status_label = ttk.Label(main_frame, text="Initializing...", font=("Helvetica", 10),
                                        background=BG_GREEN, anchor=tk.CENTER)
@@ -216,67 +203,6 @@ class VoiceApp(TkinterDnD.Tk): # Or tk.Tk if no DnD
         except Exception as e:
             messagebox.showerror("Error", f"An error occurred loading images: {e}")
             self.destroy()
-
-    def draw_waveform(self, static=False):
-        """Draws bars on the canvas."""
-        self.display_canvas.delete("waveform_bar") # Clear previous bars
-        canvas_width = self.display_canvas.winfo_width()
-        canvas_height = self.display_canvas.winfo_height()
-        if canvas_width < 10 or canvas_height < 10: # Canvas not ready yet
-            return
-
-        num_bars = 20
-        bar_width = canvas_width / (num_bars * 1.5) # Add spacing
-        gap = bar_width * 0.5
-        max_bar_height = canvas_height * 0.8
-        center_y = canvas_height / 2
-
-        current_x = gap * 2 # Start offset
-
-        for _ in range(num_bars):
-            if static:
-                bar_height = 5 # Flat line
-            else:
-                 # Simulate varying height - replace with real audio data if available
-                bar_height = random.randint(5, int(max_bar_height))
-
-            # Calculate coordinates
-            x0 = current_x
-            y0 = center_y - bar_height / 2
-            x1 = current_x + bar_width
-            y1 = center_y + bar_height / 2
-
-            self.display_canvas.create_rectangle(x0, y0, x1, y1, fill=WAVE_RED, outline="", tags="waveform_bar")
-            current_x += bar_width + gap
-
-    def animate_waveform(self):
-        """Periodically redraws the waveform if in a suitable state."""
-        # Determine if animation should run based on state
-        # (e.g., self.is_listening or self.is_speaking or self.is_reading_context)
-        # For this example, let's just animate if the flag is set
-        if self.is_animating_waveform:
-            self.draw_waveform(static=False)
-
-        # Schedule the next animation frame
-        self.after(150, self.animate_waveform) # Adjust speed (milliseconds)
-
-
-    def update_status(self, text, display_text=None):
-        # ... (update status_label as before) ...
-        # Control waveform animation based on state
-        if "Listening" in text or "Speaking" in text or "Reading" in text:
-             self.is_animating_waveform = True
-             # If starting fresh, draw immediately
-             if not self.display_canvas.find_withtag("waveform_bar"):
-                 self.draw_waveform(static=False)
-        elif "Ready" in text or "Initializing" in text or "Error" in text :
-             self.is_animating_waveform = False
-             self.draw_waveform(static=True) # Draw flat line when idle/error
-
-        self.status_label.config(text=text)
-        # Optionally update a separate display text label if you add one,
-        # or just rely on the status label and waveform visual.
-
 
     # --- Update button states using images ---
     def set_processing_state(self, processing: bool):
@@ -352,5 +278,4 @@ class VoiceApp(TkinterDnD.Tk): # Or tk.Tk if no DnD
     *   *(Optional)* Active/pressed state images if desired.
 3.  **Adjust Sizes:** Modify the `.resize((width, height))` values in `load_images` to match the actual dimensions of your created images.
 4.  **Integrate:** Replace the conceptual code snippets into your main application class structure. Ensure image loading happens correctly in `load_images`. Update the `set_processing_state`, `toggle_context`, and `_load_context_thread` methods to configure the button `image` and `state` as shown.
-5.  **Waveform:** Implement the `animate_waveform` logic and control the `self.is_animating_waveform` flag based on the application's actual state (listening, speaking, reading, idle). You might need more sophisticated state flags.
-6.  **Layout Tweaks:** Adjust `padx`, `pady`, widget sizes, and `sticky` options in `pack` or `grid` calls to fine-tune the positioning and spacing. Using `grid` within the `button_frame` provides more control over horizontal alignment.
+5.  **Layout Tweaks:** Adjust `padx`, `pady`, widget sizes, and `sticky` options in `pack` or `grid` calls to fine-tune the positioning and spacing. Using `grid` within the `button_frame` provides more control over horizontal alignment.

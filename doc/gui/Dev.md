@@ -61,22 +61,18 @@ The voice assistant provides a simple, visually appealing GUI for interacting wi
 **3. GUI Components & Styling**
 
 *   **Main Window:**
-    *   Background: Light green (`#C8E6C9`)
-    *   Size: 450x280 pixels (defaults, resizable)
-    *   Title: "Voice Assistant"
+
 *   **Display Area:**
-    *   Background: Light Coral (`#F08080`)
-    *   Border: Sienna (`#8B4513`)
     *   Content: Displays current status: "Listening...", "Thinking...", "Speaking...", etc.
 *   **Button Row:**
     *   Context Button:
-        *   OFF state: Dark grey (`#696969`), white text "Context: OFF"
-        *   ON state: Light green (`#ADFF2F`), black text "Context: ON"
+        *   OFF state
+        *   ON state
     *   Download Button:
-        *   Dark grey (`#333333`), white text "📥 Download"
+        *   Download button
         *   Initially disabled, enables after context reading
     *   Read Context Button:
-        *   Red (`#FF4136`), white text "Read Context"
+        *   Red circular like REC for Read Context
         *   Initially disabled, enables when context is loaded
 
 **4. State Management**

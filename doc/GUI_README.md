@@ -12,7 +12,7 @@ Bella is a voice assistant with a graphical user interface that allows for natur
 - **Context Enhancement**: Drag and drop a text file to provide additional context for more informed responses
 - **Read Aloud**: Have the assistant read your context documents aloud with high-quality voice synthesis
 - **Audio Download**: Save synthesized speech to WAV files for later use
-- **Visual Feedback**: Real-time audio waveform visualization during speech playback
+
 
 ## Getting Started
 
@@ -107,11 +107,6 @@ python launcher.py --gui --model Lexi --sink alsa_output.pci-0000_00_1f.3.analog
 - Try reducing background noise
 - Ensure the system microphone has proper permissions
 
-### Waveform Visualization Not Showing
-
-- Check that the audio monitor source exists for your output device
-- Try using a different audio sink with the `--sink` parameter
-- Make sure PulseAudio or PipeWire is properly installed and running
 
 ## Advanced Configuration
 

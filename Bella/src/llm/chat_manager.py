@@ -9,39 +9,6 @@ import re
 from typing import Dict, Any, Tuple
 from .config_manager import ModelConfig, PromptConfig
 from .ollama_client import generate, list_available_models
-from ..agents.search_agent import SearchAgent
-
-def is_search_request(text: str) -> bool:
-    """Check if the text contains a search request.
-    
-    Args:
-        text (str): Input text to check
-        
-    Returns:
-        bool: True if text appears to be a search request
-    """
-    search_patterns = [
-        r'search (?:for|about|the)?\s',
-        r'look (?:up|for)\s',
-        r'find (?:information about|about|info about)\s',
-        r'tell me about\s',
-        r'what (?:is|are)\s',
-        r'who (?:is|are)\s',
-        r'when (?:is|was|did)\s',
-        r'where (?:is|are|can)\s',
-        r'search\s.*\bonline\b',
-        r'\bonline\b.*\bsearch\b'
-    ]
-    
-    # Convert to lowercase for case-insensitive matching
-    text_lower = text.lower()
-    
-    # Check each pattern
-    for pattern in search_patterns:
-        if re.search(pattern, text_lower):
-            return True
-            
-    return False
 
 async def format_search_response(research_results: str) -> str:
     """Format search results in a conversational manner.
@@ -95,34 +62,30 @@ async def generate_chat_response(
     user_input: str, 
     history_context: str, 
     model: str = "Lexi", 
-    timeout: float = 15.0
+    timeout: float = 15.0,
+    use_mcp: bool = False
 ) -> str:
-    """Generate a chat response using local Ollama model."""
+    """Generate a chat response using local Ollama model.
+    
+    Args:
+        user_input (str): User's input text
+        history_context (str): Previous conversation history
+        model (str): Model to use for generation
+        timeout (float): Maximum time to wait for response
+        use_mcp (bool): Whether MCP servers are active
+        
+    Returns:
+        str: Generated response or error message
+    """
     try:
-        # Check if this is a search request
-        if is_search_request(user_input):
-            # Get search acknowledgment prompt first
-            prompt_config = PromptConfig()
-            search_ack_prompt = prompt_config.get_system_prompt("search_acknowledgments")
-            
-            # Generate search acknowledgment
-            acknowledgment = await generate(
-                prompt="Generate a search acknowledgment",
-                model=model,
-                system_prompt=search_ack_prompt,
-                verbose=False,
-                timeout=5.0
-            )
-            
-            if not acknowledgment:
-                acknowledgment = "Let me search for that!"
-                
-            # Return acknowledgment immediately to be spoken before search
-            return acknowledgment + "\n[SEARCH_INITIATED]"
-            
         # If not a search request, proceed with normal chat response
         prompt_config = PromptConfig()
-        system_prompt = prompt_config.get_system_prompt()
+        
+        # Use MCP-aware system prompt if MCP is active
+        if use_mcp:
+            system_prompt = prompt_config.get_system_prompt("system_with_mcp")
+        else:
+            system_prompt = prompt_config.get_system_prompt()
         
         print(f"Attempting to use model: {model}")  # Debug line
         

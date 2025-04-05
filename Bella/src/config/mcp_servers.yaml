@@ -1,0 +1,10 @@
+servers:
+  memory:
+    enabled: false
+    params:
+      storage_dir: ~/bella-memory
+    type: memory
+  web_search:
+    enabled: false
+    params: {}
+    type: web_search

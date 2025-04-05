@@ -25,6 +25,39 @@ import subprocess
 from loguru import logger
 from kokoro import KPipeline
 import numpy as np
+import torch
+from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
+
+def check_cuda_availability():
+    """Check if CUDA is actually available and properly configured.
+    
+    Returns:
+        tuple: (bool, str) - Whether CUDA is available and the device to use
+    """
+    # Basic CUDA availability check
+    if not torch.cuda.is_available():
+        logger.warning("CUDA not available according to PyTorch")
+        return False, "cpu"
+    
+    # Try to get device count
+    try:
+        device_count = torch.cuda.device_count()
+        if device_count == 0:
+            logger.warning("No CUDA devices found despite torch.cuda.is_available() returning True")
+            return False, "cpu"
+    except Exception as e:
+        logger.warning(f"Error checking CUDA device count: {e}")
+        return False, "cpu"
+    
+    # Try to initialize a small tensor on CUDA to ensure it's actually working
+    try:
+        test_tensor = torch.zeros(1).cuda()
+        del test_tensor
+        logger.info(f"CUDA is available and working with {device_count} device(s)")
+        return True, "cuda"
+    except Exception as e:
+        logger.warning(f"Failed to initialize tensor on CUDA: {e}")
+        return False, "cpu"
 
 class KokoroTTSWrapper:
     """Wrapper for Kokoro TTS with PipeWire audio output."""
@@ -33,7 +66,8 @@ class KokoroTTSWrapper:
                  model_path: str = None,
                  default_voice: str = "af_bella",
                  speed: float = 0.9,
-                 sink_name: str = None):
+                 sink_name: str = None,
+                 device: str = None):
         """Initialize Kokoro TTS with specified settings.
         
         Args:
@@ -41,8 +75,20 @@ class KokoroTTSWrapper:
             default_voice (str): Voice ID to use (default: "af_bella")
             speed (float): Speech speed multiplier (default: 0.9)
             sink_name (str, optional): Name of PulseAudio sink to use for output
+            device (str, optional): Device to use for inference (e.g. 'cuda', 'cpu')
         """
         logger.info("Initializing Kokoro TTS...")
+        
+        # Determine the optimal device to use
+        if device is not None:
+            # User-specified device takes precedence
+            self.device = device
+            logger.info(f"Using user-specified device: {self.device}")
+        else:
+            # Auto-detect device if not specified
+            cuda_available, auto_device = check_cuda_availability()
+            self.device = auto_device
+            logger.info(f"Auto-detected device: {self.device} (CUDA available: {cuda_available})")
         
         # Initialize Kokoro pipeline with English
         try:

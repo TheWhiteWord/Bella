@@ -1,0 +1,217 @@
+Tools
+Model Context Protocol
+The Model Context Protocol (MCP) enables Agents to interact with external systems through a standardized interface. With Agno’s MCP integration, you can connect any MCP-compatible service to your Agents.
+
+​
+Example: Filesystem Agent
+Here’s a filesystem agent that uses the Filesystem MCP server to explore and analyze files:
+
+filesystem_agent.py
+
+Copy
+import asyncio
+from pathlib import Path
+from textwrap import dedent
+
+from agno.agent import Agent
+from agno.models.openai import OpenAIChat
+from agno.tools.mcp import MCPTools
+from mcp import StdioServerParameters
+
+
+async def run_agent(message: str) -> None:
+    """Run the filesystem agent with the given message."""
+
+    # MCP parameters for the Filesystem server accessed via `npx`
+    server_params = StdioServerParameters(
+        command="npx",
+        args=[
+            "-y",
+            "@modelcontextprotocol/server-filesystem",
+            str(Path(__file__).parent.parent.parent.parent),  # Set this to the root of the project you want to explore
+        ],
+    )
+
+
+    # Create a client session to connect to the MCP server
+    async with MCPTools(server_params=server_params) as mcp_tools:
+        agent = Agent(
+            model=OpenAIChat(id="gpt-4o"),
+            tools=[mcp_tools],
+            instructions=dedent("""\
+                You are a filesystem assistant. Help users explore files and directories.
+
+                - Navigate the filesystem to answer questions
+                - Use the list_allowed_directories tool to find directories that you can access
+                - Provide clear context about files you examine
+                - Use headings to organize your responses
+                - Be concise and focus on relevant information\
+            """),
+            markdown=True,
+            show_tool_calls=True,
+        )
+
+        # Run the agent
+        await agent.aprint_response(message, stream=True)
+
+
+# Example usage
+if __name__ == "__main__":
+    # Basic example - exploring project license
+    asyncio.run(run_agent("What is the license for this project?"))
+​
+Multiple MCP Servers
+You can use multiple MCP servers in a single agent by passing multiple MCPTools instances to the tools parameter of the Agent constructor.
+
+multiple_mcp_servers.py
+
+Copy
+import asyncio
+import os
+
+from agno.agent import Agent
+from agno.tools.mcp import MCPTools
+from mcp import StdioServerParameters
+
+
+async def run_agent(message: str) -> None:
+    """Run the GitHub agent with the given message."""
+
+    env = {
+        **os.environ,
+        "GOOGLE_MAPS_API_KEY": os.getenv("GOOGLE_MAPS_API_KEY"),
+    }
+
+    # Time-zone MCP server accessed via `uvx`
+    time_server_params = StdioServerParameters(
+        command="uvx",
+        args=["mcp-server-time", "--local-timezone=Europe/London"],
+    )
+
+    # Maps MCP server accessed via `npx`
+    maps_server_params = StdioServerParameters(
+        command="npx", args=["-y", "@modelcontextprotocol/server-google-maps"], env=env
+    )
+
+    async with MCPTools(server_params=time_server_params) as time_mcp_tools, MCPTools(server_params=maps_server_params) as maps_mcp_tools:
+        agent = Agent(
+            tools=[time_mcp_tools, maps_mcp_tools],
+            markdown=True,
+            show_tool_calls=True,
+        )
+
+        await agent.aprint_response(message, stream=True)
+
+
+# Example usage
+if __name__ == "__main__":
+    # Pull request example
+    asyncio.run(
+        run_agent(
+            "What is the current time in Cape Town? What restaurants are open right now?"
+        )
+    )
+​
+More Flexibility
+You can also create the MCP server yourself and pass it to the MCPTools constructor.
+
+filesystem_agent.py
+
+Copy
+import asyncio
+from pathlib import Path
+from textwrap import dedent
+
+from agno.agent import Agent
+from agno.models.openai import OpenAIChat
+from agno.tools.mcp import MCPTools
+from mcp import ClientSession, StdioServerParameters
+from mcp.client.stdio import stdio_client
+
+
+async def create_filesystem_agent(session):
+    """Create and configure a filesystem agent with MCP tools."""
+    # Initialize the MCP toolkit
+    mcp_tools = MCPTools(session=session)
+    await mcp_tools.initialize()
+
+    # Create an agent with the MCP toolkit
+    return Agent(
+        model=OpenAIChat(id="gpt-4o"),
+        tools=[mcp_tools],
+        instructions=dedent("""\
+            You are a filesystem assistant. Help users explore files and directories.
+
+            - Navigate the filesystem to answer questions
+            - Use the list_allowed_directories tool to find directories that you can access
+            - Provide clear context about files you examine
+            - Use headings to organize your responses
+            - Be concise and focus on relevant information\
+        """),
+        markdown=True,
+        show_tool_calls=True,
+    )
+
+
+async def run_agent(message: str) -> None:
+    """Run the filesystem agent with the given message."""
+    
+    # Initialize the MCP server
+    server_params = StdioServerParameters(
+        command="npx",
+        args=[
+            "-y",
+            "@modelcontextprotocol/server-filesystem",
+            str(Path(__file__).parent.parent.parent.parent),  # Set this to the root of the project you want to explore
+        ],
+    )
+
+    # Create a client session to connect to the MCP server
+    async with stdio_client(server_params) as (read, write):
+        async with ClientSession(read, write) as session:
+            agent = await create_filesystem_agent(session)
+
+            # Run the agent
+            await agent.aprint_response(message, stream=True)
+
+
+# Example usage
+if __name__ == "__main__":
+    # Basic example - exploring project license
+    asyncio.run(run_agent("What is the license for this project?"))
+​
+Best Practices
+Error Handling: Always include proper error handling for MCP server connections and operations.
+
+Resource Cleanup: Use MCPTools as an async context manager to ensure proper cleanup of resources:
+
+
+Copy
+async with MCPTools(server_params) as mcp_tools:
+    # Your agent code here
+Clear Instructions: Provide clear and specific instructions to your agent:
+
+Copy
+instructions = """
+You are a filesystem assistant. Help users explore files and directories.
+- Navigate the filesystem to answer questions
+- Use the list_allowed_directories tool to find accessible directories
+- Provide clear context about files you examine
+- Be concise and focus on relevant information
+"""
+​
+Understanding server Parameters
+The server_params parameter to MCPTools is used to configure the connection to the MCP server. It contains the following keys:
+
+command: The command to run the MCP server.
+Use npx for mcp servers that can be installed via npm (or node if running on Windows).
+Use uvx for mcp servers that can be installed via uvx.
+args: The arguments to pass to the MCP server.
+env: Optional environment variables to pass to the MCP server. Remember to include all current environment variables in the env dictionary. e.g.
+
+Copy
+{
+    **os.environ,
+    "GOOGLE_MAPS_API_KEY": os.getenv("GOOGLE_MAPS_API_KEY"),
+}
+​
