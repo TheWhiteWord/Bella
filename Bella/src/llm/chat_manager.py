@@ -6,9 +6,12 @@ handling conversation context and model management.
 
 import asyncio
 import re
-from typing import Dict, Any, Tuple
+import logging
+from typing import Dict, Any, Tuple, List, Optional
+
 from .config_manager import ModelConfig, PromptConfig
 from .ollama_client import generate, list_available_models
+from src.utility.mcp_server_manager import MCPServerManager
 
 async def format_search_response(research_results: str) -> str:
     """Format search results in a conversational manner.
@@ -89,8 +92,28 @@ async def generate_chat_response(
         # Use MCP-aware system prompt if MCP is active
         if use_mcp:
             system_prompt = prompt_config.get_system_prompt("system_with_mcp")
+            
+            # Get available MCP tools if MCP is enabled
+            mcp_tools = None
+            try:
+                mcp_manager = MCPServerManager()
+                mcp_servers = mcp_manager.get_active_servers()
+                if mcp_servers:
+                    # Collect all available tools from MCP servers
+                    mcp_tools = []
+                    for server in mcp_servers:
+                        if hasattr(server, 'get_tools_schema'):
+                            server_tools = server.get_tools_schema()
+                            if server_tools:
+                                mcp_tools.extend(server_tools)
+                    
+                    if mcp_tools:
+                        logging.info(f"Found {len(mcp_tools)} MCP tools to provide to the model")
+            except Exception as e:
+                logging.error(f"Error getting MCP tools: {str(e)}")
         else:
             system_prompt = prompt_config.get_system_prompt()
+            mcp_tools = None
         
         print(f"Attempting to use model: {model}")  # Debug line
         
@@ -99,7 +122,8 @@ async def generate_chat_response(
             model=model,
             system_prompt=system_prompt,
             verbose=True,
-            timeout=timeout
+            timeout=timeout,
+            mcp_tools=mcp_tools  # Pass MCP tools to the generator
         )
         
         if not response:

@@ -33,4 +33,4 @@ models:
       max_tokens: 100
       min_p: 0.05
 
-default_model: "Gemma"  # Default model to use
+default_model: "Mistral"  # Default model to use
