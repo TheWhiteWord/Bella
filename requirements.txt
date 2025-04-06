@@ -22,3 +22,5 @@ misaki[en,zh]>=0.9.3   # G2P for multiple languages support
 #fallback = espeak.EspeakFallback(lang="ja")
 # Use fallback for Japanese text
 phonemizer-fork
+
+nltk #memory
