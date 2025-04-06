@@ -1,104 +1,222 @@
-"""Integration of memory system with the main application.
+"""Integration of enhanced memory capabilities with Bella's main memory system.
 
-This module provides a simplified interface for integrating the autonomous memory system
-with the main application, handling pre-processing inputs and post-processing responses.
+This module provides a clean interface to access enhanced memory features for the main application.
 """
 
 import asyncio
-from typing import Dict, List, Any, Optional, Union, Tuple
+import logging
+from typing import Dict, List, Any, Optional, Tuple, Union
+import os
 
-from .memory_conversation_adapter import MemoryConversationAdapter
+from .enhanced_memory_adapter import EnhancedMemoryAdapter
+from .memory_api import search_notes
+from .autonomous_memory import AutonomousMemory
 
-class MainAppMemoryAdapter:
-    """Adapter to integrate memory system with the main application."""
+class BellaMemoryManager:
+    """Main integration point for Bella's memory systems."""
     
     def __init__(self):
-        """Initialize main app memory adapter."""
-        self.memory_adapter = MemoryConversationAdapter()
-        self.conversation_history = []  # Store conversation history for context
+        """Initialize the memory manager with enhanced capabilities."""
+        self.enhanced_adapter = None
+        self.autonomous_memory = AutonomousMemory()
+        self._initialized = False
+        self._embedding_model = "nomic-embed-text"  # Default model
         
-    async def pre_process_input(self, user_input: str) -> Dict[str, Any]:
-        """Process user input before generating a response.
+    async def initialize(self, embedding_model: str = None):
+        """Initialize memory systems.
+        
+        Args:
+            embedding_model: Optional embedding model name to use
+        """
+        if embedding_model:
+            self._embedding_model = embedding_model
+            
+        if not self._initialized:
+            try:
+                # Initialize enhanced memory adapter with specified embedding model
+                self.enhanced_adapter = EnhancedMemoryAdapter(embedding_model=self._embedding_model)
+                await self.enhanced_adapter.initialize()
+                self._initialized = True
+                logging.info(f"Memory manager initialized successfully with {self._embedding_model}")
+            except Exception as e:
+                logging.error(f"Error initializing memory manager: {e}")
+    
+    async def search_memory(self, query: str) -> Tuple[List[Dict[str, Any]], bool]:
+        """Search memory with enhanced semantic capabilities.
+        
+        Args:
+            query: Search query text
+            
+        Returns:
+            Tuple of (search results, success status)
+        """
+        # Ensure initialized
+        if not self._initialized:
+            await self.initialize()
+        
+        try:
+            # First get standard search results
+            standard_results = await search_notes(query)
+            
+            if not standard_results:
+                return [], False
+                
+            # If we have primary results, enhance them
+            primary_results = standard_results.get("primary_results", [])
+            
+            if primary_results:
+                # Get enhanced results with semantic search
+                enhanced_results = await self.enhanced_adapter.enhance_memory_retrieval(
+                    query, primary_results
+                )
+                
+                # Replace primary results with enhanced ones
+                standard_results["primary_results"] = enhanced_results
+                
+                # Track memory access for the top result
+                if enhanced_results:
+                    top_memory_id = os.path.basename(enhanced_results[0].get("path", "")).replace('.md', '')
+                    if top_memory_id:
+                        self.enhanced_adapter.record_memory_access(top_memory_id)
+            
+            return standard_results, True
+            
+        except Exception as e:
+            logging.error(f"Error searching memory: {e}")
+            return [], False
+    
+    async def evaluate_memory_importance(self, text: str) -> float:
+        """Evaluate the importance of a potential memory.
+        
+        Args:
+            text: Text to evaluate
+            
+        Returns:
+            Importance score between 0 and 1
+        """
+        # Ensure initialized
+        if not self._initialized:
+            await self.initialize()
+            
+        try:
+            return await self.enhanced_adapter.processor.score_memory_importance(text)
+        except Exception as e:
+            logging.error(f"Error evaluating memory importance: {e}")
+            return 0.5  # Default to medium importance
+    
+    async def should_store_memory(self, text: str) -> bool:
+        """Determine if a text should be stored as a memory.
+        
+        Args:
+            text: Text to evaluate
+            
+        Returns:
+            Boolean indicating if text should be stored
+        """
+        # Ensure initialized
+        if not self._initialized:
+            await self.initialize()
+            
+        try:
+            should_save, _ = await self.enhanced_adapter.should_save_memory(text)
+            return should_save
+        except Exception as e:
+            logging.error(f"Error determining if memory should be stored: {e}")
+            # Fall back to a simple heuristic
+            return len(text.split()) > 10  # Simple fallback
+    
+    async def prepare_text_for_storage(self, text: str, max_length: int = 150) -> str:
+        """Prepare text for storage by summarizing if needed.
+        
+        Args:
+            text: Text to prepare
+            max_length: Maximum length in words
+            
+        Returns:
+            Prepared text
+        """
+        # Ensure initialized
+        if not self._initialized:
+            await self.initialize()
+            
+        try:
+            return await self.enhanced_adapter.summarize_for_storage(text, max_length)
+        except Exception as e:
+            logging.error(f"Error preparing text for storage: {e}")
+            return text  # Return original text if error
+    
+    async def process_conversation_turn(
+        self, user_input: str, response_text: str = None
+    ) -> Dict[str, Any]:
+        """Process a conversation turn with enhanced memory capabilities.
+        
+        This method integrates autonomous memory with enhanced memory features.
         
         Args:
             user_input: User's input text
+            response_text: Assistant's response text (None if pre-processing)
             
         Returns:
-            Dict with memory context to add
+            Memory context dictionary
         """
-        # Get conversation history in the format required by the memory adapter
-        formatted_history = self._format_conversation_history()
+        # Ensure initialized
+        if not self._initialized:
+            await self.initialize()
         
-        # Use the memory adapter to pre-process input
-        return await self.memory_adapter.pre_process_input(user_input, formatted_history)
+        # Process with autonomous memory
+        modified_response, memory_context = await self.autonomous_memory.process_conversation_turn(
+            user_input, response_text
+        )
         
-    async def post_process_response(self, user_input: str, response: str) -> str:
-        """Process response after generation to potentially add memory information.
+        # Add enhanced memory capabilities if appropriate
+        if response_text is None:
+            # This is pre-processing (before response)
+            # Check if autonomous memory found something
+            if not memory_context.get("has_memory_context", False):
+                # Try semantic search as a backup
+                query = user_input
+                semantic_results = await self.enhanced_adapter.processor.find_relevant_memories(
+                    query, threshold=0.75, top_k=1
+                )
+                
+                if semantic_results:
+                    # Get the top result
+                    memory_id, score = semantic_results[0]
+                    
+                    # Only use if highly relevant
+                    if score > 0.8:
+                        try:
+                            # Find and read memory content
+                            memory_path = await self.enhanced_adapter._find_memory_path(memory_id)
+                            if memory_path:
+                                from .memory_api import read_note
+                                
+                                memory_content = await read_note(memory_path)
+                                
+                                # Record access
+                                self.enhanced_adapter.record_memory_access(memory_id)
+                                
+                                # Return as memory context
+                                memory_context = {
+                                    "has_memory_context": True,
+                                    "memory_response": f"According to my memory: {memory_content[:200]}...",
+                                    "memory_source": "semantic_search",
+                                    "confidence": "high" if score > 0.85 else "medium"
+                                }
+                        except Exception as e:
+                            logging.error(f"Error retrieving semantic memory: {e}")
         
-        Args:
-            user_input: Original user input
-            response: Generated response text
-            
-        Returns:
-            Potentially modified response with memory information
-        """
-        # Use memory adapter to post-process response
-        return await self.memory_adapter.post_process_response(user_input, response)
-        
-    def add_to_history(self, user_input: str, response: str) -> None:
-        """Add a conversation turn to the history.
-        
-        Args:
-            user_input: User's input text
-            response: Assistant's response text
-        """
-        self.conversation_history.append({
-            "user": user_input,
-            "assistant": response
-        })
-        
-        # Keep history at a reasonable size (last 10 turns)
-        if len(self.conversation_history) > 10:
-            self.conversation_history = self.conversation_history[-10:]
-            
-    def build_context_with_memory(self, base_context: str, memory_context: Dict[str, Any]) -> str:
-        """Build a context string that includes memory information.
-        
-        Args:
-            base_context: Base system context
-            memory_context: Memory context information
-            
-        Returns:
-            Enhanced context string with memory information
-        """
-        memory_text = memory_context.get("memory_context", "")
-        memory_source = memory_context.get("memory_source", "")
-        
-        if not memory_text:
-            return base_context
-            
-        # Format memory context for inclusion in system prompt
-        memory_addition = f"""
-I'm recalling relevant information from my memory that may help with this conversation:
+        # Return result
+        return {"modified_response": modified_response, "memory_context": memory_context}
 
-{memory_text}
 
-Source: {memory_source if memory_source else 'Memory system'}
-"""
-        
-        if base_context:
-            return f"{base_context}\n\n{memory_addition}"
-        else:
-            return memory_addition
-            
-    def _format_conversation_history(self) -> List[Dict[str, str]]:
-        """Format internal conversation history for memory adapter.
-        
-        Returns:
-            List of message dictionaries with role and content
-        """
-        formatted = []
-        for turn in self.conversation_history:
-            formatted.append({"role": "user", "content": turn["user"]})
-            formatted.append({"role": "assistant", "content": turn["assistant"]})
-        return formatted
+# Singleton instance for easy access
+memory_manager = BellaMemoryManager()
+
+async def ensure_memory_initialized(embedding_model: str = "nomic-embed-text"):
+    """Ensure memory manager is initialized.
+    
+    Args:
+        embedding_model: Name of Ollama embedding model to use
+    """
+    await memory_manager.initialize(embedding_model)

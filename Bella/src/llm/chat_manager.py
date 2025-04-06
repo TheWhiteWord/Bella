@@ -150,9 +150,12 @@ async def generate_chat_response_with_tools(
         When you use a tool, carefully examine the results before responding.
         
         Memory Tools:
-        - Use 'remember_fact' when the user shares important information they want you to remember for later.
-        - Use 'recall_memory' when the user asks about something you might have stored in memory.
+        - Use 'semantic_memory_search' when the user asks you to recall information from your memory.
+        - Use 'save_to_memory' when the user shares important information they want you to remember.
+        - Use 'read_specific_memory' when you need to access a specific memory by ID.
         - Use 'save_conversation' when the conversation contains valuable information worth saving.
+        - Use 'evaluate_memory_importance' to determine if information is worth remembering.
+        - Use 'list_memories_by_type' when you want to see what memories are available.
         
         IMPORTANT: After using any tools, you MUST provide a conversational response to the user - never return an empty response.
         """

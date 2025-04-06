@@ -1,66 +1,59 @@
-"""Integration of memory system with voice assistant.
+"""Integration between voice assistant and memory system.
 
-Provides tools to capture, retrieve, and manage memories through voice interactions.
+This module handles the interaction between the voice interface and memory storage.
 """
 
 import asyncio
-import json
 import re
-import nltk
 from typing import Dict, List, Any, Optional, Tuple
+from datetime import datetime
 
-from .memory_api import (
-    write_note,
-    read_note,
-    search_notes,
-    build_context,
-    recent_activity,
-    update_note,
-    delete_note,
-    create_memory_from_conversation
-)
-
-# Try to initialize NLTK resources safely
-try:
-    nltk.data.find('tokenizers/punkt')
-except LookupError:
-    try:
-        nltk.download('punkt', quiet=True)
-    except:
-        pass  # Continue without nltk if download fails
+from .memory_api import write_note, read_note, search_notes, create_memory_from_conversation
 
 class VoiceMemoryIntegration:
     """Integration between voice assistant and memory system."""
     
     def __init__(self):
         """Initialize voice memory integration."""
-        self.conversation_buffer = []
-        self.current_topic = None
+        self.conversation_buffer = []  # Store recent conversation turns
+        self.max_buffer_size = 20      # Maximum number of turns to store
+        self.conversation_topic = None # Current conversation topic
+        self.importance_threshold = 0.7 # Threshold for fact importance (increased from default)
+        self.fact_patterns = [
+            # More specific and selective fact patterns
+            r"(?:my name is|I am called) ([A-Z][a-z]+)",
+            r"(?:I|my|we) (?:prefer|like|love|enjoy|favorite) (?:is )?(.{3,40})",
+            r"(?:I|my|we) (?:dislike|hate|don't like|cannot stand) (?:is )?(.{3,40})",
+            r"(?:always|usually|typically|generally) ([^.,;!?]{5,60})",
+            r"important (?:to|for) (?:me|us) (?:is|are) ([^.,;!?]{5,60})",
+            r"(?:I am|I'm) (?:a|an) ([^.,;!?]{3,30})(?: by profession| for living)?",
+            r"(?:I have|I've) (?:a|an) ([^.,;!?]{3,30})",
+            r"(?:remember|note|don't forget) that ([^.,;!?]{5,100})"
+        ]
         
     def add_to_conversation_buffer(self, user_text: str, assistant_text: str) -> None:
-        """Add an interaction to the conversation buffer.
+        """Add a conversation turn to the buffer.
         
         Args:
             user_text: User's input text
             assistant_text: Assistant's response text
         """
-        self.conversation_buffer.append(user_text)
-        self.conversation_buffer.append(assistant_text)
+        self.conversation_buffer.append({"user": user_text, "assistant": assistant_text})
         
         # Keep buffer at a reasonable size
-        if len(self.conversation_buffer) > 20:  # Last 10 turns
-            self.conversation_buffer = self.conversation_buffer[-20:]
-    
+        if len(self.conversation_buffer) > self.max_buffer_size:
+            self.conversation_buffer = self.conversation_buffer[-self.max_buffer_size:]
+            
     def clear_conversation_buffer(self) -> None:
         """Clear the conversation buffer."""
         self.conversation_buffer = []
-        self.current_topic = None
+        self.conversation_topic = None
         
     async def save_current_conversation(self, title: str = None) -> Dict[str, Any]:
-        """Save current conversation buffer as a memory.
+        """Save the current conversation buffer to memory.
         
         Args:
-            title: Optional title for the memory
+            title: Optional title for the conversation memory
             
         Returns:
             Dict with operation results
@@ -68,141 +61,138 @@ class VoiceMemoryIntegration:
         if not self.conversation_buffer:
             return {"error": "No conversation to save"}
             
-        result = await create_memory_from_conversation(
-            conversation=self.conversation_buffer,
-            title=title,
-            topic=self.current_topic,
-            folder="conversations"  # Explicitly specify folder
-        )
-        
-        return result
-    
+        # Format conversation for storage
+        conversation = []
+        for turn in self.conversation_buffer:
+            conversation.append(turn["user"])
+            conversation.append(turn["assistant"])
+            
+        # Generate title if not provided
+        if not title:
+            # Extract meaningful title from conversation
+            topic_hint = self.conversation_topic or self._extract_conversation_topic(conversation)
+            timestamp = datetime.now().strftime("%Y-%m-%d-%H%M")
+            title = f"{topic_hint or 'Conversation'}-on-{timestamp}"
+            
+        # Actually save conversation
+        try:
+            result = await create_memory_from_conversation(
+                conversation=conversation,
+                title=title,
+                topic=self.conversation_topic,
+                folder="conversations"
+            )
+            return result
+        except Exception as e:
+            return {"error": f"Failed to save conversation: {str(e)}"}
+            
     async def answer_from_memory(self, query: str) -> Tuple[str, bool]:
-        """Try to answer a question from memory.
+        """Attempt to answer a question from stored memories.
         
         Args:
-            query: Question or query from user
+            query: The question or topic to search for
             
         Returns:
-            Tuple of (response text, found_in_memory)
+            Tuple of (response text, whether answer was found)
         """
-        # Try to find relevant memories
-        search_result = await search_notes(query)
-        
-        if search_result and search_result.get('primary_results') and len(search_result['primary_results']) > 0:
-            # Found something relevant
-            top_result = search_result['primary_results'][0]
-            memory_content = await read_note(top_result['title'])
+        try:
+            # Search for relevant memories
+            search_result = await search_notes(query)
             
-            if memory_content:
-                # Format a response from the memory
-                response = self._format_memory_response(
-                    memory_content, 
-                    top_result['title'],
-                    query
-                )
-                return response, True
-        
-        # Try with normalized versions of the query (e.g., proper capitalization)
-        words = query.split()
-        if len(words) > 0:
-            # Try with first letter capitalized 
-            capitalized_query = ' '.join(w.capitalize() if i == 0 or len(w) > 3 else w 
-                                        for i, w in enumerate(words))
+            if not search_result or not search_result.get("primary_results"):
+                return f"I don't have any memories about {query}", False
+                
+            # Get the most relevant result
+            top_result = search_result["primary_results"][0]
+            memory_path = top_result.get("path")
             
-            if capitalized_query != query:
-                search_result = await search_notes(capitalized_query)
+            if not memory_path:
+                return f"I found something about {query}, but couldn't retrieve it", False
                 
-                if search_result and search_result.get('primary_results') and len(search_result['primary_results']) > 0:
-                    # Found something with capitalized query
-                    top_result = search_result['primary_results'][0]
-                    memory_content = await read_note(top_result['title'])
-                    
-                    if memory_content:
-                        response = self._format_memory_response(
-                            memory_content,
-                            top_result['title'],
-                            query
-                        )
-                        return response, True
+            # Read the memory content
+            memory_content = await read_note(memory_path)
+            
+            if not memory_content:
+                return f"I found a memory about {query} but couldn't read it", False
                 
-        return "", False
-    
+            # Format the response
+            memory_title = top_result.get("title", "this topic")
+            response = self._format_memory_response(memory_content, memory_title, query)
+            
+            return response, True
+            
+        except Exception as e:
+            return f"I tried to check my memory about {query}, but encountered an error: {str(e)}", False
+            
     async def extract_and_save_fact(self, text: str) -> Optional[Dict[str, Any]]:
-        """Extract a fact from text and save it to memory.
+        """Extract and save important facts from text.
         
         Args:
-            text: Text containing a potential fact
+            text: Text to analyze for important facts
             
         Returns:
-            Dict with operation results if a fact was saved
+            Dict with saved fact info if successful, None otherwise
         """
-        # Simple fact detection - sentences with factual indicators
-        fact_indicators = [
-            "is a", "are", "was", "were", "has", "have",
-            "I like", "I prefer", "I enjoy", "I want",
-            "always", "never", "usually", "often",
-            "my favorite", "I remember"
-        ]
+        # Check if text contains explicit memory command
+        if re.search(r"^(?:remember|note|save|store|keep in mind) that", text.lower()):
+            # This is an explicit memory command
+            return await self._save_explicit_fact(text)
+            
+        # Extract implicit facts (more conservative approach)
+        extracted_fact = self._extract_implicit_fact(text)
+        if not extracted_fact:
+            return None
+            
+        fact_text, importance = extracted_fact
         
-        # Check for fact-like statements
-        for indicator in fact_indicators:
-            if indicator.lower() in text.lower():
-                # Extract the sentence containing the fact
-                sentences = re.split(r'[.!?]', text)
-                fact_sentence = ""
-                
-                for sentence in sentences:
-                    if indicator.lower() in sentence.lower():
-                        fact_sentence = sentence.strip()
-                        break
-                        
-                if fact_sentence:
-                    # Create a fact memory
-                    category = "preference" if any(p in fact_sentence.lower() for p in 
-                                                ["like", "prefer", "favorite", "enjoy", "want"]) else "fact"
-                    
-                    # Determine topic for the fact
-                    topic = self._extract_topic(fact_sentence)
-                    
-                    # Create content for the fact
-                    content = f"# {topic if topic else 'Fact'}\n\n"
-                    content += f"## Information\n\n"
-                    content += fact_sentence + ".\n\n"
-                    
-                    # Add observation
-                    content += f"## Observations\n\n"
-                    content += f"- [{category}] {fact_sentence} #{category}\n"
-                    
-                    # Add relations
-                    content += f"\n## Relations\n\n"
-                    if topic:
-                        content += f"- about [[{topic}]]\n"
-                    content += f"- type [[{category.title()}]]\n"
-                    
-                    # Create the memory
-                    result = await write_note(
-                        title=f"{topic if topic else fact_sentence[:30]}",
-                        content=content,
-                        folder=category+"s",  # "facts" or "preferences" folder
-                        tags=[category, topic] if topic else [category],
-                        verbose=True
-                    )
-                    
-                    return result
+        # Only save if important enough (higher threshold)
+        if importance < self.importance_threshold:
+            return None
+            
+        # Create a title from the fact
+        title = self._create_fact_title(fact_text)
         
-        return None
-    
+        # Format the content
+        content = f"""# {title}
+
+## Fact
+{fact_text}
+
+## Metadata
+- Importance: {importance:.2f}
+- Source: Extracted from conversation
+- [datetime] Extracted on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+
+## Relations
+- type [[Fact]]
+"""
+
+        if self.conversation_topic:
+            content += f"- about [[{self.conversation_topic}]]\n"
+            
+        # Save to memory system
+        try:
+            result = await write_note(
+                title=title,
+                content=content,
+                folder="facts",
+                tags=["fact", self.conversation_topic] if self.conversation_topic else ["fact"],
+                verbose=True
+            )
+            return result
+        except Exception as e:
+            return None
+            
     async def set_conversation_topic(self, topic: str) -> None:
-        """Set the topic for the current conversation.
+        """Set the current conversation topic.
         
         Args:
-            topic: Topic or subject of conversation
+            topic: Topic name
         """
-        self.current_topic = topic
-    
+        self.conversation_topic = topic
+        
     def _format_memory_response(self, memory_content: str, title: str, query: str) -> str:
-        """Format a response from memory content.
+        """Format memory content for response.
         
         Args:
             memory_content: Raw memory content
@@ -212,196 +202,246 @@ class VoiceMemoryIntegration:
         Returns:
             Formatted response text
         """
-        # Extract most relevant parts
+        # Extract the most relevant section
         relevant_section = self._extract_relevant_section(memory_content, query)
         
-        # Create a natural-sounding response
-        response = f"From my memory about '{title}', "
-        
-        if relevant_section:
-            response += f"I recall that {relevant_section}"
-        else:
-            # Fall back to a summary if no specific section found
-            response += f"I found some information but it's not specifically about your question. "
-            response += f"Would you like me to share what I know about {title}?"
+        # Format the response
+        if len(relevant_section) > 200:
+            # Truncate if too long
+            relevant_section = relevant_section[:200] + "..."
             
+        response = f"About {title}: {relevant_section}"
         return response
-    
+        
     def _extract_relevant_section(self, content: str, query: str) -> str:
-        """Extract most relevant section from memory content for query.
+        """Extract the most relevant section from memory content.
         
         Args:
             content: Memory content
             query: Search query
             
         Returns:
-            Most relevant text section
+            Relevant section text
         """
-        query_words = set(query.lower().split())
+        # Remove frontmatter if present
+        if content.startswith("---"):
+            content = re.sub(r"---.*?---", "", content, flags=re.DOTALL).strip()
+            
+        # Split into sections
+        sections = re.split(r"##\s+", content)
         
-        # Remove markdown frontmatter
-        content = re.sub(r'^---\n.*?\n---\n', '', content, flags=re.DOTALL)
-        
-        # Split into sections by headings
-        sections = re.split(r'#{1,3}\s+', content)
-        
+        # Process each section to find most relevant
         best_section = ""
         best_score = 0
+        
+        query_words = set(query.lower().split())
         
         for section in sections:
             if not section.strip():
                 continue
                 
-            # Count query word matches
-            section_lower = section.lower()
-            score = sum(1 for word in query_words if word in section_lower)
+            # Calculate relevance score
+            section_words = set(section.lower().split())
+            common_words = query_words.intersection(section_words)
+            score = len(common_words) / len(query_words) if query_words else 0
             
-            # Prioritize observation sections
-            if "observations" in section_lower:
-                score += 2
+            # Boost score for sections with specific headers
+            if section.lower().startswith(("fact", "information", "detail", "observation")):
+                score *= 1.5
                 
             if score > best_score:
                 best_score = score
-                best_section = section
-        
-        if best_section:
-            # Extract most relevant sentences
-            sentences = re.split(r'[.!?]', best_section)
-            relevant_sentences = []
-            
-            for sentence in sentences:
-                sentence = sentence.strip()
-                if not sentence:
-                    continue
+                # Extract just the content, removing headers
+                lines = section.split("\n")
+                if lines:
+                    header = lines[0]
+                    content = "\n".join(lines[1:]).strip()
+                    best_section = content
                     
-                # Count query word matches in sentence
-                score = sum(1 for word in query_words if word in sentence.lower())
-                
-                if score > 0:
-                    relevant_sentences.append(sentence)
+        if best_section:
+            return best_section
             
-            # If we found relevant sentences, use them
-            if relevant_sentences:
-                return ". ".join(relevant_sentences) + "."
-                
-            # Otherwise return first ~200 chars of best section
-            return best_section.strip()[:200] + "..."
-            
-        return ""
-    
-    def _extract_topic(self, text: str) -> Optional[str]:
-        """Extract a likely topic from text.
+        # If no good section found, just return first non-header text
+        content_no_headers = re.sub(r"#\s+.*?\n", "", content)
+        first_para = next(filter(None, content_no_headers.split("\n\n")), "")
+        return first_para[:200]  # Limit length
+        
+    def _extract_conversation_topic(self, conversation: List[str]) -> str:
+        """Extract the main topic from conversation.
         
         Args:
-            text: Text to extract topic from
+            conversation: List of conversation turns
             
         Returns:
-            Extracted topic or None
+            Extracted topic or default
         """
-        # Skip common words and prefixes
-        skip_words = {
-            "i", "me", "my", "mine", "you", "your", "yours", 
-            "he", "him", "his", "she", "her", "hers", "it", "its",
-            "we", "us", "our", "ours", "they", "them", "their", "theirs",
-            "am", "is", "are", "was", "were", "be", "being", "been",
-            "have", "has", "had", "do", "does", "did", "a", "an", "the",
-            "and", "but", "or", "because", "as", "until", "while",
-            "of", "at", "by", "for", "with", "about", "against",
-            "between", "into", "through", "during", "before", "after",
-            "above", "below", "to", "from", "up", "down", "in", "out",
-            "on", "off", "over", "under", "again", "further", "then",
-            "once", "here", "there", "when", "where", "why", "how",
-            "all", "any", "both", "each", "few", "more", "most",
-            "some", "such", "no", "nor", "not", "only", "own",
-            "same", "so", "than", "too", "very", "just", "should",
-            "would", "could", "now", "this", "that", "favorite", "like", 
-            "prefer", "want", "enjoy", "tell", "know"
-        }
+        # Analyze recent messages to identify topic
+        joined_text = " ".join(conversation[-4:])  # Look at recent messages
         
-        # Try to use NLTK for better extraction if available
+        # Look for topic indicators
+        topic_indicators = [
+            r"talk(?:ing)? about ([a-zA-Z ]{3,25})",
+            r"discuss(?:ing)? ([a-zA-Z ]{3,25})",
+            r"conversation about ([a-zA-Z ]{3,25})"
+        ]
+        
+        for pattern in topic_indicators:
+            match = re.search(pattern, joined_text, re.IGNORECASE)
+            if match:
+                return match.group(1).strip().title()
+                
+        # Extract noun phrases as potential topics using part-of-speech patterns
+        noun_phrases = re.findall(r'\b(?:the |a |an )?([A-Z][a-z]+(?:\s+[a-z]+){0,2})\b', joined_text)
+        if noun_phrases:
+            return noun_phrases[0]
+            
+        # Extract most frequent significant words
+        words = re.findall(r'\b[a-zA-Z]{4,}\b', joined_text.lower())
+        if not words:
+            return "Conversation"
+            
+        # Filter common words
+        common_words = {"what", "where", "when", "which", "this", "that", "these", "those", 
+                       "have", "does", "like", "about", "there", "their", "would", "could", 
+                       "should", "because", "thanks", "please", "hello", "goodbye"}
+        words = [w for w in words if w not in common_words]
+        
+        # Get most frequent
+        if words:
+            word_counts = {}
+            for word in words:
+                word_counts[word] = word_counts.get(word, 0) + 1
+                
+            top_word = max(word_counts.items(), key=lambda x: x[1])[0]
+            return top_word.title()
+            
+        return "Conversation"
+        
+    async def _save_explicit_fact(self, text: str) -> Optional[Dict[str, Any]]:
+        """Save an explicitly stated fact.
+        
+        Args:
+            text: Text containing the fact
+            
+        Returns:
+            Dict with saved fact info if successful, None otherwise
+        """
+        # Extract the fact part (after "remember that" or similar phrase)
+        match = re.search(r"^(?:remember|note|save|store|keep in mind) that (.+)", text.lower())
+        if not match:
+            return None
+            
+        fact_text = match.group(1).strip()
+        if not fact_text:
+            return None
+            
+        # Capitalize first letter of fact
+        fact_text = fact_text[0].upper() + fact_text[1:]
+        
+        # Create a title from the fact
+        title = self._create_fact_title(fact_text)
+        
+        # Format the content with proper markdown structure
+        content = f"""# {title}
+
+## Fact
+{fact_text}
+
+## Metadata
+- Importance: 1.0
+- Source: Explicit memory command
+- [datetime] Recorded on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+
+## Observations
+- [explicit] User explicitly asked to remember this fact
+
+## Relations
+- type [[Fact]]
+"""
+
+        if self.conversation_topic:
+            content += f"- about [[{self.conversation_topic}]]\n"
+            
+        # Save to memory system
         try:
-            from nltk import pos_tag, word_tokenize
+            result = await write_note(
+                title=title,
+                content=content,
+                folder="facts",
+                tags=["fact", "explicit", self.conversation_topic] if self.conversation_topic else ["fact", "explicit"],
+                verbose=True
+            )
+            return result
+        except Exception as e:
+            return None
             
-            # Tokenize and tag parts of speech
-            tokens = word_tokenize(text)
-            tagged = pos_tag(tokens)
+    def _extract_implicit_fact(self, text: str) -> Optional[Tuple[str, float]]:
+        """Extract implicit facts from text with importance score.
+        
+        Args:
+            text: Text to extract facts from
             
-            # Extract noun phrases - look for sequences of adjectives followed by nouns
-            noun_phrases = []
-            current_phrase = []
-            
-            for word, tag in tagged:
-                word_lower = word.lower()
-                # Skip punctuation and stop words
-                if not word.isalnum() or word_lower in skip_words:
-                    if current_phrase:
-                        noun_phrases.append(" ".join(current_phrase))
-                        current_phrase = []
+        Returns:
+            Tuple of (fact text, importance score) or None if no fact found
+        """
+        # Check against fact patterns
+        for pattern in self.fact_patterns:
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match:
+                # Calculate importance based on pattern confidence and specificity
+                base_importance = 0.6  # Base importance for pattern matches
+                
+                # Adjust importance based on various factors
+                importance = base_importance
+                
+                # More specific patterns get higher importance
+                if "important" in pattern or "remember" in pattern:
+                    importance += 0.2
+                    
+                # Longer extracted facts may be more important
+                extracted_fact = match.group(1).strip()
+                if len(extracted_fact) > 15:
+                    importance += 0.1
+                    
+                # Proper nouns suggest important entities
+                if re.search(r'\b[A-Z][a-z]+\b', extracted_fact):
+                    importance += 0.1
+                    
+                # First person statements can be more important
+                if re.search(r'\b(I|my|we|our)\b', text.lower()):
+                    importance += 0.1
+                    
+                # Skip very short or vague facts
+                if len(extracted_fact) < 5 or extracted_fact.lower() in ["this", "that", "it", "something", "things"]:
                     continue
                     
-                # Add adjectives and nouns to current phrase
-                if tag.startswith('JJ') or tag.startswith('NN'):
-                    current_phrase.append(word)
-                # If we hit a non-adj/noun and have a phrase building, complete it
-                elif current_phrase:
-                    noun_phrases.append(" ".join(current_phrase))
-                    current_phrase = []
+                # Form proper sentence for the fact
+                if not extracted_fact.endswith((".", "!", "?")):
+                    extracted_fact += "."
                     
-            # Add any remaining phrase
-            if current_phrase:
-                noun_phrases.append(" ".join(current_phrase))
-            
-            # Return the longest noun phrase, or the first if tie
-            if noun_phrases:
-                return max(noun_phrases, key=len)
+                return extracted_fact, min(importance, 1.0)  # Cap at 1.0
                 
-        except Exception:
-            # Fall back to regex-based approach if NLTK fails
-            pass
-            
-        # Fall back: Extract nouns using simple POS heuristics
-        words = text.split()
-        nouns = []
-        
-        for i, word in enumerate(words):
-            clean_word = re.sub(r'[^\w\s]', '', word).lower()
-            if not clean_word or clean_word in skip_words:
-                continue
-                
-            # Check for noun-like patterns
-            is_noun = False
-            
-            # Capitalized non-first words are likely nouns
-            if i > 0 and word[0].isupper():
-                is_noun = True
-                
-            # Words after determiners (a, an, the) are likely nouns
-            if i > 0 and words[i-1].lower() in ["a", "an", "the", "my", "your", "his", "her", "their", "our"]:
-                is_noun = True
-                
-            # Words after adjectives might be nouns
-            if i > 0 and words[i-1].lower().endswith(("ful", "ous", "ible", "able", "al", "ive", "ent", "ed")):
-                is_noun = True
-                
-            # Words before prepositions might be nouns
-            if i < len(words) - 1 and words[i+1].lower() in ["of", "in", "by", "with", "for"]:
-                is_noun = True
-                
-            if is_noun:
-                # Get the original form (not lowercased)
-                original_word = re.sub(r'[^\w\s]', '', word)
-                nouns.append(original_word)
-                
-        # Return most likely noun phrases (up to 2 consecutive nouns)
-        if nouns:
-            # If we have sequential nouns, join them
-            if len(nouns) > 1:
-                # Look for consecutive nouns
-                for i in range(len(nouns) - 1):
-                    if i < len(words) - 1 and words.index(nouns[i]) + 1 == words.index(nouns[i+1]):
-                        return f"{nouns[i]} {nouns[i+1]}"
-                
-            # Otherwise just return first noun
-            return nouns[0]
-            
         return None
+        
+    def _create_fact_title(self, fact_text: str) -> str:
+        """Create a title from fact text.
+        
+        Args:
+            fact_text: The fact text
+            
+        Returns:
+            Title for the fact
+        """
+        # Clean up the text
+        clean_text = re.sub(r'[^\w\s]', '', fact_text.lower())
+        
+        # Take first few words (up to 8) for the title
+        words = clean_text.split()
+        title_words = words[:min(8, len(words))]
+        title = "-".join(title_words)
+        
+        # Ensure reasonable length (max 50 chars)
+        if len(title) > 50:
+            title = title[:50]
+            
+        return title

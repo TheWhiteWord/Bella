@@ -10,8 +10,15 @@ import argparse
 import subprocess
 import json
 import tempfile
+import logging
 from typing import Dict, Any, Optional, Tuple, List
 import re
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 
 # Add project root directory to Python path
 project_root = os.path.dirname(os.path.abspath(__file__))
@@ -22,10 +29,13 @@ from src.utility.buffered_recorder import BufferedRecorder, create_audio_stream
 from src.llm.chat_manager import generate_chat_response, generate_chat_response_with_tools, get_available_models
 from src.audio.kokoro_tts.kokoro_tts import KokoroTTSWrapper
 from src.llm.config_manager import ModelConfig
-from src.memory.main_app_integration import MainAppMemoryAdapter
 
-# Import memory tools registration to ensure tools are registered at startup
-import src.llm.register_memory_tools
+# Import enhanced memory system instead of the older memory adapter
+from src.memory.main_app_integration import memory_manager, ensure_memory_initialized
+from src.memory.memory_conversation_adapter import MemoryConversationAdapter
+
+# Import tools registration to ensure memory tools are registered at startup
+import src.memory.register_memory_tools
 
 # Path to the search signal file used by web_search_mcp
 SEARCH_SIGNAL_PATH = os.path.join(tempfile.gettempdir(), "bella_search_status.json")
@@ -117,13 +127,31 @@ async def init_tts_engine(sink_name: Optional[str] = None) -> KokoroTTSWrapper:
         print(f"Error initializing TTS engine: {e}")
         raise
 
+async def init_memory_system() -> None:
+    """Initialize the enhanced memory system with Ollama embeddings.
+    
+    This sets up the semantic memory system using the nomic-embed-text model.
+    """
+    print("\nInitializing enhanced memory system...")
+    try:
+        # Explicitly specify the embedding model to use
+        embedding_model = "nomic-embed-text"
+        print(f"Using embedding model: {embedding_model}")
+        
+        # Initialize memory system with the specified embedding model
+        await ensure_memory_initialized(embedding_model=embedding_model)
+        print(f"Enhanced memory system initialized with {embedding_model} embeddings.")
+    except Exception as e:
+        print(f"Warning: Enhanced memory initialization failed: {e}")
+        print("Falling back to basic memory capabilities.")
+
 async def main_interaction_loop(model: str = None, sink_name: Optional[str] = None, use_memory: bool = True) -> None:
     """Main loop for capturing speech, generating responses, and playing audio.
     
     Args:
         model (str, optional): Model nickname for Ollama. If None, uses default from config
         sink_name (str, optional): Name of PulseAudio sink to use for output
-        use_memory (bool): Whether to use the autonomous memory system
+        use_memory (bool): Whether to use the memory system
     """
     print("\nInitializing voice assistant components...")
     tts_engine = None
@@ -166,9 +194,12 @@ async def main_interaction_loop(model: str = None, sink_name: Optional[str] = No
         # Initialize memory system if enabled
         memory_adapter = None
         if use_memory:
-            print("\nInitializing memory system...")
-            memory_adapter = MainAppMemoryAdapter()
-            print("Memory system initialized.")
+            # Initialize enhanced memory system
+            await init_memory_system()
+            
+            # Create memory conversation adapter for interaction
+            memory_adapter = MemoryConversationAdapter()
+            print("Memory conversation adapter initialized.")
 
         welcome_message = "Voice Assistant ready! Start speaking when ready."
         
@@ -237,13 +268,22 @@ async def main_interaction_loop(model: str = None, sink_name: Optional[str] = No
                 
                 # Add memory context to enhance response (if memory system enabled)
                 enhanced_context = ""
-                if memory_adapter:
-                    # Pre-process input through memory system
-                    memory_context = await memory_adapter.pre_process_input(transcribed_text)
-                    
-                    if memory_context and memory_context.get("memory_context"):
-                        print("\nFound relevant memory to include in context.")
-                        enhanced_context = memory_adapter.build_context_with_memory("", memory_context)
+                memory_context = {}
+                if memory_adapter and use_memory:
+                    try:
+                        # Pre-process input through memory system
+                        memory_context = await memory_adapter.pre_process_input(transcribed_text, formatted_history)
+                        
+                        if memory_context and memory_context.get("memory_context"):
+                            confidence = memory_context.get("confidence", "low")
+                            print(f"\nFound relevant memory (confidence: {confidence}).")
+                            enhanced_context = f"Based on my memory: {memory_context.get('memory_context')}"
+                            
+                            # Log memory source for debugging
+                            if "memory_source" in memory_context:
+                                print(f"Memory source: {memory_context['memory_source']}")
+                    except Exception as mem_err:
+                        print(f"\nWarning: Memory processing error: {mem_err}")
 
                 # Generate response with tool capabilities
                 if enhanced_context:
@@ -265,11 +305,19 @@ async def main_interaction_loop(model: str = None, sink_name: Optional[str] = No
                 print(f"Assistant: {response}")
                 
                 # Process for memory post-response (without changing spoken response)
-                if memory_adapter:
-                    # Post-process response through memory system (silently adds to memory)
-                    _ = await memory_adapter.post_process_response(transcribed_text, response)
-                    # Update adapter's conversation history
-                    memory_adapter.add_to_history(transcribed_text, response)
+                if memory_adapter and use_memory:
+                    try:
+                        # Post-process response through memory system
+                        modified_response = await memory_adapter.post_process_response(
+                            transcribed_text, response
+                        )
+                        
+                        # Use the modified response if it's different (rare)
+                        if modified_response and modified_response != response:
+                            print("\nMemory system modified response.")
+                            response = modified_response
+                    except Exception as mem_err:
+                        print(f"\nWarning: Memory post-processing error: {mem_err}")
 
                 # Update conversation history
                 conversation_history.append(transcribed_text)  # User input

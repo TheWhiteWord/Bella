@@ -1,239 +1,191 @@
-"""Memory conversation adapter for seamless integration with the chat system.
+"""Memory conversation adapter for integrating enhanced memory in conversations.
 
-Provides adapters to connect the autonomous memory system to the main conversation flow.
+This module provides a conversation-level interface for the enhanced memory system.
+It handles pre-processing inputs and post-processing responses with memory features.
 """
 
 import asyncio
-from typing import Dict, List, Any, Optional, Tuple, Callable, Union
+import logging
+from typing import Dict, List, Any, Optional, Tuple, Union
 
-from .autonomous_memory import AutonomousMemory
-
+from .main_app_integration import memory_manager, ensure_memory_initialized
 
 class MemoryConversationAdapter:
-    """Adapter to integrate memory system into the conversation pipeline."""
+    """Adapter for using memory in conversations."""
     
-    def __init__(self):
-        """Initialize memory conversation adapter."""
-        self.memory_system = AutonomousMemory()
+    def __init__(self, embedding_model: str = "nomic-embed-text"):
+        """Initialize the memory conversation adapter.
         
-    async def pre_process_input(self, user_input: str, conversation_history: List[Dict[str, str]]) -> Dict[str, Any]:
+        Args:
+            embedding_model: Name of Ollama embedding model to use
+        """
+        self.conversation_history = []  # Tracks conversation for memory context
+        self.embedding_model = embedding_model
+    
+    async def pre_process_input(
+        self, user_input: str, formatted_history: Optional[List[Dict[str, str]]] = None
+    ) -> Dict[str, Any]:
         """Process user input before generating a response.
         
-        This method enriches the conversation context with relevant memories.
+        This method:
+        1. Searches memory for relevant context
+        2. Evaluates if the input should be remembered
         
         Args:
             user_input: User's input text
-            conversation_history: Previous conversation turns
+            formatted_history: Optional conversation history in chat format
             
         Returns:
-            Dict with memory context to add
+            Dictionary with memory context
         """
-        _, memory_context = await self.memory_system.process_conversation_turn(user_input)
-        
-        if memory_context and memory_context.get("has_memory_context"):
-            # Format the memory context as system message or context to include
-            return {
-                "memory_context": memory_context.get("memory_response"),
-                "memory_source": memory_context.get("memory_source")
-            }
-        
-        return {}
-        
-    async def post_process_response(
-        self, user_input: str, response: str
-    ) -> str:
-        """Process response after generation to potentially add memory information.
-        
-        Args:
-            user_input: Original user input
-            response: Generated response text
-            
-        Returns:
-            Potentially modified response with memory information
-        """
-        modified_response, _ = await self.memory_system.process_conversation_turn(
-            user_input, response
-        )
-        
-        return modified_response if modified_response else response
-        
-        
-class LLMMemoryTools:
-    """Provides memory-related tools for LLM function calling."""
-    
-    def __init__(self):
-        """Initialize memory tools for LLMs."""
-        self.memory_system = AutonomousMemory()
-        
-    def get_memory_tools(self) -> Dict[str, Dict[str, Any]]:
-        """Get memory tools in the format needed for LLM function definitions.
-        
-        Returns:
-            Dict of memory tools with their schemas
-        """
-        return {
-            "remember_fact": {
-                "name": "remember_fact",
-                "description": "Store an important fact in memory for future reference",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "fact": {
-                            "type": "string",
-                            "description": "The fact to remember"
-                        },
-                        "topic": {
-                            "type": "string",
-                            "description": "The topic category for this fact"
-                        }
-                    },
-                    "required": ["fact"]
-                }
-            },
-            "recall_memory": {
-                "name": "recall_memory",
-                "description": "Recall information from memory",
-                "parameters": {
-                    "type": "object", 
-                    "properties": {
-                        "query": {
-                            "type": "string",
-                            "description": "What to recall from memory"
-                        }
-                    },
-                    "required": ["query"]
-                }
-            },
-            "save_conversation": {
-                "name": "save_conversation",
-                "description": "Save the current conversation to memory",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "title": {
-                            "type": "string", 
-                            "description": "Title to use for this conversation memory"
-                        },
-                        "topic": {
-                            "type": "string",
-                            "description": "Main topic of this conversation"
-                        }
-                    }
-                }
-            }
+        # Initialize result
+        result = {
+            "has_memory_context": False,
+            "memory_context": "",
+            "memory_source": None,
+            "confidence": "low",
         }
         
-    async def execute_tool(self, tool_name: str, params: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute a memory tool based on its name and parameters.
-        
-        Args:
-            tool_name: Name of the tool to execute
-            params: Parameters for the tool execution
+        try:
+            # First check if memory is initialized
+            await ensure_memory_initialized(self.embedding_model)
             
-        Returns:
-            Result of the tool execution
-        """
-        if tool_name == "remember_fact":
-            return await self._remember_fact(params.get("fact"), params.get("topic"))
-        elif tool_name == "recall_memory":
-            return await self._recall_memory(params.get("query"))
-        elif tool_name == "save_conversation":
-            return await self._save_conversation(params.get("title"), params.get("topic"))
-        else:
-            return {"error": f"Unknown memory tool: {tool_name}"}
-    
-    async def _remember_fact(self, fact: str, topic: str = None) -> Dict[str, Any]:
-        """Store a fact in memory.
-        
-        Args:
-            fact: The fact text to remember
-            topic: Optional topic categorization
+            # Search for relevant memories
+            search_results, success = await memory_manager.search_memory(user_input)
             
-        Returns:
-            Result of the operation
-        """
-        if not fact:
-            return {"success": False, "message": "No fact provided"}
-            
-        # Format the fact text for extraction
-        if not fact.lower().startswith("remember that "):
-            fact_text = f"Remember that {fact}"
-        else:
-            fact_text = fact
-            
-        # Extract and save the fact
-        result = await self.memory_system.memory_module.integration.extract_and_save_fact(fact_text)
-        
-        if result:
-            if topic and "title" in result:
-                # Update the memory with the topic if provided
-                await self.memory_system.memory_module.integration.set_conversation_topic(topic)
+            if success and search_results:
+                # Extract primary results
+                primary_results = search_results.get("primary_results", [])
                 
-            return {
-                "success": True,
-                "message": f"I've remembered that {fact}",
-                "memory_id": result.get("title", "")
-            }
-        else:
-            return {
-                "success": False,
-                "message": "I couldn't save that fact to memory"
-            }
+                if primary_results:
+                    # Get top result
+                    top_result = primary_results[0]
+                    relevance = top_result.get("score", 0)
+                    
+                    # Only use if relevance is high enough
+                    if relevance >= 0.70:
+                        # Get content
+                        content = top_result.get("content_preview", "")
+                        if not content and "path" in top_result:
+                            from .memory_api import read_note
+                            try:
+                                content = await read_note(top_result["path"])
+                            except:
+                                pass
+                        
+                        # Prepare context
+                        if content:
+                            # Set result values
+                            result["has_memory_context"] = True
+                            result["memory_context"] = content
+                            result["memory_source"] = top_result.get("source", "search")
+                            
+                            # Set confidence level
+                            if relevance >= 0.85:
+                                result["confidence"] = "high"
+                            elif relevance >= 0.75:
+                                result["confidence"] = "medium"
+            
+            # Check if this input should be remembered
+            should_remember, importance = await memory_manager.should_store_memory(user_input)
+            result["should_remember"] = should_remember
+            result["importance"] = importance
+            
+        except Exception as e:
+            logging.error(f"Error in memory pre-processing: {e}")
+            
+        return result
     
-    async def _recall_memory(self, query: str) -> Dict[str, Any]:
-        """Recall information from memory.
+    async def post_process_response(
+        self, user_input: str, assistant_response: str
+    ) -> Optional[str]:
+        """Process response after it's generated.
+        
+        This method:
+        1. Updates memory with the conversation
+        2. Optionally modifies the response to include memory references
         
         Args:
-            query: Query to search memory for
+            user_input: User's input text
+            assistant_response: Generated assistant response
             
         Returns:
-            Result of the memory recall
+            Optionally modified response text
         """
-        if not query:
-            return {"success": False, "message": "No query provided"}
+        try:
+            # Check if important enough to remember
+            context = f"User: {user_input}\nAssistant: {assistant_response}"
             
-        # Search memory for the query
-        answer, found = await self.memory_system.memory_module.query_memory(query)
-        
-        if found:
-            return {
-                "success": True,
-                "message": answer,
-                "found": True
-            }
-        else:
-            return {
-                "success": True,
-                "message": f"I don't have any memories about {query}",
-                "found": False
-            }
-    
-    async def _save_conversation(self, title: str = None, topic: str = None) -> Dict[str, Any]:
-        """Save the current conversation to memory.
+            should_remember, importance = await memory_manager.should_store_memory(context)
+            
+            if should_remember and importance >= 0.75:
+                # This is a significant conversation worth remembering
+                logging.info(f"Saving conversation to memory (importance: {importance:.2f})")
+                
+                # Process with memory manager
+                modified_response = await memory_manager.process_conversation_turn(
+                    user_input, assistant_response
+                )
+                
+                return modified_response.get("modified_response")
+                
+            # Return unchanged response if no modifications needed
+            return None
+            
+        except Exception as e:
+            logging.error(f"Error in memory post-processing: {e}")
+            return None
+            
+    def add_to_history(self, user_input: str, assistant_response: str) -> None:
+        """Add a conversation turn to the history.
         
         Args:
-            title: Optional title for the memory
-            topic: Optional topic categorization
+            user_input: User's input text
+            assistant_response: Assistant's response text
+        """
+        self.conversation_history.append({"role": "user", "content": user_input})
+        self.conversation_history.append({"role": "assistant", "content": assistant_response})
+        
+        # Keep history at a reasonable size
+        if len(self.conversation_history) > 20:
+            self.conversation_history = self.conversation_history[-20:]
+    
+    def build_context_with_memory(self, base_context: str, memory_context: Dict[str, Any]) -> str:
+        """Build a context string incorporating memory.
+        
+        Args:
+            base_context: Base context string
+            memory_context: Memory context dictionary
             
         Returns:
-            Result of the operation
+            Enhanced context string
         """
-        # Set the conversation topic if provided
-        if topic:
-            await self.memory_system.memory_module.integration.set_conversation_topic(topic)
+        if not memory_context or not memory_context.get("has_memory_context"):
+            return base_context
             
-        # Save the conversation
-        result = await self.memory_system.memory_module.integration.save_current_conversation(title)
+        memory_text = memory_context.get("memory_context", "")
+        if not memory_text:
+            return base_context
+            
+        # Combine contexts
+        combined = base_context.strip()
         
-        if result and "error" not in result:
-            return {
-                "success": True,
-                "message": f"I've saved our conversation to memory as '{result.get('title')}'",
-                "memory_id": result.get("title", "")
-            }
+        # Add a separator if needed
+        if combined and not combined.endswith("\n"):
+            combined += "\n\n"
+        elif not combined:
+            combined = ""
+            
+        # Add memory context with appropriate framing
+        confidence = memory_context.get("confidence", "low")
+        
+        if confidence == "high":
+            memory_prefix = "Based on my memory:"
+        elif confidence == "medium":
+            memory_prefix = "I think I remember that:"
         else:
-            error_msg = result.get("error", "Unknown error") if result else "Failed to save conversation"
-            return {
-                "success": False,
-                "message": f"I had trouble saving our conversation: {error_msg}"
-            }
+            memory_prefix = "I vaguely remember something about:"
+            
+        combined += f"{memory_prefix} {memory_text}"
+        
+        return combined

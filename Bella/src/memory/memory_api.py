@@ -6,9 +6,11 @@ Provides simplified interfaces to memory functions for use in voice interactions
 import asyncio
 import os
 import re
+import glob
 import json
 from typing import Dict, List, Any, Optional, Union
 from datetime import datetime
+from pathlib import Path
 
 from .memory_manager import MemoryManager
 
@@ -205,3 +207,75 @@ async def create_memory_from_conversation(
         tags=["conversation", topic] if topic else ["conversation"],
         verbose=True
     )
+
+async def save_note(
+    content: str,
+    memory_type: str = "general",
+    note_name: str = None
+) -> Optional[str]:
+    """Save a note to memory.
+    
+    This is an alias for write_note that matches the function signature
+    used by the enhanced memory implementation.
+    
+    Args:
+        content: Content of the note
+        memory_type: Type/folder for the memory (e.g., "facts", "preferences")
+        note_name: Name for the note file (without extension)
+        
+    Returns:
+        Path to the saved note file or None if operation failed
+    """
+    # Generate a title if not provided
+    if not note_name:
+        # Use first few words of content as title
+        words = re.findall(r'\w+', content.lower())
+        if len(words) > 5:
+            note_name = "-".join(words[:5])
+        else:
+            # Fallback to timestamp
+            note_name = f"memory-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+    
+    # Ensure title is safe for filenames
+    note_name = re.sub(r'[^\w\-]', '-', note_name)
+    
+    # Create a new note
+    result = await write_note(
+        title=note_name,
+        content=content,
+        folder=memory_type,
+        tags=[memory_type]
+    )
+    
+    if result and result.get('success'):
+        return result.get('path')
+    return None
+
+async def list_notes(memory_type: str, prefix: str = None) -> List[str]:
+    """List all notes in a memory type/folder.
+    
+    Args:
+        memory_type: Type/folder of memories to list
+        prefix: Optional filename prefix filter
+        
+    Returns:
+        List of note names (without extension)
+    """
+    # Get memory manager instance
+    manager = get_memory_manager()
+    
+    # Using memory_dir instead of base_dir
+    base_dir = manager.memory_dir
+    
+    # Ensure directory exists
+    memory_dir = os.path.join(base_dir, memory_type)
+    if not os.path.exists(memory_dir):
+        return []
+    
+    # List all markdown files
+    pattern = os.path.join(memory_dir, f"{prefix or ''}*.md")
+    files = glob.glob(pattern)
+    
+    # Extract basenames without extension
+    notes = [os.path.splitext(os.path.basename(f))[0] for f in files]
+    return sorted(notes)
