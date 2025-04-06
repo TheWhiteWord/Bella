@@ -11,21 +11,7 @@ from typing import Dict, Any, Tuple, List, Optional
 
 from .config_manager import ModelConfig, PromptConfig
 from .ollama_client import generate, list_available_models
-from ..memory import MemoryManager
 
-# Initialize memory manager (will be lazy-loaded when needed)
-_memory_manager = None
-
-def get_memory_manager() -> MemoryManager:
-    """Get or initialize the memory manager.
-    
-    Returns:
-        MemoryManager: The memory manager instance
-    """
-    global _memory_manager
-    if _memory_manager is None:
-        _memory_manager = MemoryManager(enable_memory=True)
-    return _memory_manager
 
 async def format_search_response(research_results: str) -> str:
     """Format search results in a conversational manner.
@@ -97,30 +83,14 @@ async def generate_chat_response(
         if model is None:
             model_config = ModelConfig()
             model = model_config.get_default_model()
-            
-        # Get memory manager
-        memory_manager = get_memory_manager()
-        
-        # Record user input in memory
-        memory_manager.record_interaction("User", user_input)
-            
-        # Get relevant context from memory
-        memory_context = await memory_manager.get_context(user_input)
-        
-        # Combine conversation history with memory context
-        enhanced_context = f"{history_context}\n\n{memory_context}" if memory_context else history_context
         
         prompt_config = PromptConfig()
         system_prompt = prompt_config.get_system_prompt()
         
-        # Enhance system prompt with memory capabilities
-        if memory_manager.enable_memory:
-            system_prompt += "\nYou have access to memory and can remember previous interactions. Use this to provide more personalized and contextually relevant responses."
-        
         print(f"Attempting to use model: {model}")  # Debug line
         
         response = await generate(
-            prompt=f"Given this conversation history and memory context:\n{enhanced_context}\n\nRespond to: {user_input}",
+            prompt=f"Given this conversation history:\n{history_context}\n\nRespond to: {user_input}",
             model=model,
             system_prompt=system_prompt,
             verbose=True,
@@ -134,72 +104,11 @@ async def generate_chat_response(
                 return f"Model '{model}' not found in configuration. Please check models.yaml."
             return "I apologize, but I'm having trouble generating a response. Please make sure Ollama is running."
         
-        # Record assistant response in memory
-        memory_manager.record_interaction("Assistant", response)
-        
-        # Check if we should store important information in long-term memory
-        if _is_important_information(user_input, response):
-            await memory_manager.store_important(
-                f"User asked: {user_input}\nAssistant responded: {response}",
-                metadata={"importance": "high", "topic": _extract_topic(user_input)}
-            )
-        
         return response
         
     except Exception as e:
         print(f"Error in generate_chat_response: {str(e)}")
         return "An error occurred while generating the response."
-
-def _is_important_information(user_input: str, response: str) -> bool:
-    """Determine if the current exchange contains important information to remember.
-    
-    This is a simple heuristic that can be enhanced with more sophisticated logic.
-    
-    Args:
-        user_input: The user's input
-        response: The assistant's response
-        
-    Returns:
-        bool: Whether the exchange contains important information
-    """
-    # Keywords that might indicate important information
-    important_keywords = [
-        'remember', 'don\'t forget', 'important', 
-        'my name is', 'I am', 'I like', 'I prefer',
-        'favorite', 'address', 'phone', 'email'
-    ]
-    
-    # Check if any important keywords are in the user input or response
-    for keyword in important_keywords:
-        if keyword.lower() in user_input.lower() or keyword.lower() in response.lower():
-            return True
-            
-    # Is it a long, detailed response? Might be worth remembering
-    if len(response) > 500:
-        return True
-        
-    return False
-
-def _extract_topic(text: str) -> str:
-    """Extract the main topic from text.
-    
-    Args:
-        text: The text to extract topic from
-        
-    Returns:
-        str: The extracted topic or 'general'
-    """
-    # Very simple topic extraction - this could be enhanced with NLP
-    words = text.lower().split()
-    stopwords = {'a', 'an', 'the', 'to', 'and', 'or', 'but', 'in', 'on', 'at', 'is', 'are', 'was', 'were'}
-    
-    # Filter out stopwords and get the most frequent words
-    filtered = [word for word in words if word not in stopwords and len(word) > 3]
-    
-    if filtered:
-        # Just return the first non-stopword as the topic
-        return filtered[0]
-    return 'general'
 
 async def get_available_models() -> Dict[str, Dict[str, Any]]:
     """Get list of available local models and their descriptions, including runtime check.
