@@ -19,9 +19,13 @@ sys.path.insert(0, project_root)
 
 from src.utility.audio_session_manager import AudioSessionManager
 from src.utility.buffered_recorder import BufferedRecorder, create_audio_stream
-from src.llm.chat_manager import generate_chat_response, get_available_models
+from src.llm.chat_manager import generate_chat_response, generate_chat_response_with_tools, get_available_models
 from src.audio.kokoro_tts.kokoro_tts import KokoroTTSWrapper
 from src.llm.config_manager import ModelConfig
+from src.memory.main_app_integration import MainAppMemoryAdapter
+
+# Import memory tools registration to ensure tools are registered at startup
+import src.llm.register_memory_tools
 
 # Path to the search signal file used by web_search_mcp
 SEARCH_SIGNAL_PATH = os.path.join(tempfile.gettempdir(), "bella_search_status.json")
@@ -113,12 +117,13 @@ async def init_tts_engine(sink_name: Optional[str] = None) -> KokoroTTSWrapper:
         print(f"Error initializing TTS engine: {e}")
         raise
 
-async def main_interaction_loop(model: str = None, sink_name: Optional[str] = None) -> None:
+async def main_interaction_loop(model: str = None, sink_name: Optional[str] = None, use_memory: bool = True) -> None:
     """Main loop for capturing speech, generating responses, and playing audio.
     
     Args:
         model (str, optional): Model nickname for Ollama. If None, uses default from config
         sink_name (str, optional): Name of PulseAudio sink to use for output
+        use_memory (bool): Whether to use the autonomous memory system
     """
     print("\nInitializing voice assistant components...")
     tts_engine = None
@@ -157,6 +162,13 @@ async def main_interaction_loop(model: str = None, sink_name: Optional[str] = No
             print(f"{status} {model_id}: {info['description']}")
         
         print(f"\nUsing model: {model}")
+        
+        # Initialize memory system if enabled
+        memory_adapter = None
+        if use_memory:
+            print("\nInitializing memory system...")
+            memory_adapter = MainAppMemoryAdapter()
+            print("Memory system initialized.")
 
         welcome_message = "Voice Assistant ready! Start speaking when ready."
         
@@ -215,23 +227,49 @@ async def main_interaction_loop(model: str = None, sink_name: Optional[str] = No
                 await asyncio.sleep(0.3)  # Give more time to ensure stop
 
                 # Format conversation history for context
-                history_text = ""
-                for i, entry in enumerate(conversation_history[-6:] if len(conversation_history) > 6 else conversation_history):
-                    role = "User" if i % 2 == 0 else "Assistant"
-                    history_text += f"{role}: {entry}\n"
+                formatted_history = []
+                for i, entry in enumerate(conversation_history):
+                    role = "user" if i % 2 == 0 else "assistant"
+                    formatted_history.append({"role": role, "content": entry})
 
                 # Generate response using local Ollama model
                 print(f"\nThinking... (using {model})")
+                
+                # Add memory context to enhance response (if memory system enabled)
+                enhanced_context = ""
+                if memory_adapter:
+                    # Pre-process input through memory system
+                    memory_context = await memory_adapter.pre_process_input(transcribed_text)
+                    
+                    if memory_context and memory_context.get("memory_context"):
+                        print("\nFound relevant memory to include in context.")
+                        enhanced_context = memory_adapter.build_context_with_memory("", memory_context)
 
-                # Generate normal response
-                response = await generate_chat_response(
-                    transcribed_text, 
-                    history_text, 
-                    model, 
-                    timeout=15.0
+                # Generate response with tool capabilities
+                if enhanced_context:
+                    # Add memory context as a system message
+                    sys_message = {"role": "system", "content": enhanced_context}
+                    tool_history = [sys_message] + formatted_history
+                else:
+                    tool_history = formatted_history
+                
+                # Try generating response with tools first
+                response, updated_history = await generate_chat_response_with_tools(
+                    transcribed_text,
+                    tool_history,
+                    model,
+                    timeout=15.0,
+                    verbose=False
                 )
                 
                 print(f"Assistant: {response}")
+                
+                # Process for memory post-response (without changing spoken response)
+                if memory_adapter:
+                    # Post-process response through memory system (silently adds to memory)
+                    _ = await memory_adapter.post_process_response(transcribed_text, response)
+                    # Update adapter's conversation history
+                    memory_adapter.add_to_history(transcribed_text, response)
 
                 # Update conversation history
                 conversation_history.append(transcribed_text)  # User input
@@ -293,6 +331,11 @@ if __name__ == "__main__":
         type=str,
         help="Name of PulseAudio sink to use"
     )
+    parser.add_argument(
+        "--disable-memory",
+        action="store_true",
+        help="Disable the autonomous memory system"
+    )
     
     args = parser.parse_args()
     
@@ -301,7 +344,7 @@ if __name__ == "__main__":
             list_audio_devices()
             sys.exit(0)
             
-        asyncio.run(main_interaction_loop(args.model, args.sink))
+        asyncio.run(main_interaction_loop(args.model, args.sink, not args.disable_memory))
     except KeyboardInterrupt:
         print("\nStopped by user.")
     except Exception as e:

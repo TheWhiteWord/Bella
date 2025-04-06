@@ -71,7 +71,8 @@ class VoiceMemoryIntegration:
         result = await create_memory_from_conversation(
             conversation=self.conversation_buffer,
             title=title,
-            topic=self.current_topic
+            topic=self.current_topic,
+            folder="conversations"  # Explicitly specify folder
         )
         
         return result
