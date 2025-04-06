@@ -44,6 +44,12 @@ class ShortTermMemory:
             return False
             
         try:
+            # Ensure metadata is a dict
+            mem_metadata = metadata or {}
+            
+            # Add memory type to metadata
+            mem_metadata["memory_type"] = "short_term"
+            
             # Use the store method directly on the Knowledge object
             # Note: The Knowledge.store method isn't async, so we wrap it in an executor
             # to avoid blocking the main thread
@@ -53,14 +59,21 @@ class ShortTermMemory:
                 lambda: self.manager.praison_memory.store(
                     text,
                     user_id="bella",  # Use a consistent user_id for the assistant
-                    metadata=metadata or {}
+                    metadata=mem_metadata
                 )
             )
             
             # Log the result for debugging
             logging.info(f"Short-term memory store result: {result}")
             
-            return bool(result and ('success' in result and result['success'] or 'results' in result))
+            # Check for successful storage - handle different response formats
+            if isinstance(result, dict):
+                if result.get('success') is True:
+                    return True
+                if 'results' in result and result['results']:
+                    return True
+            
+            return False
             
         except Exception as e:
             logging.error(f"Failed to store short-term memory: {e}")
@@ -98,22 +111,27 @@ class ShortTermMemory:
             # Format results
             formatted_results = []
             
-            # Check if we have a valid result structure
-            if search_results and isinstance(search_results, list):
-                for result in search_results:
-                    formatted_results.append({
-                        "text": result.get("text", ""),
-                        "metadata": result.get("metadata", {}),
-                        "score": result.get("score", 0.0)
-                    })
-            # Handle alternative result format with 'results' key
-            elif search_results and isinstance(search_results, dict) and 'results' in search_results:
-                for result in search_results['results']:
-                    formatted_results.append({
-                        "text": result.get("text", ""),
-                        "metadata": result.get("metadata", {}),
-                        "score": result.get("score", 0.0)
-                    })
+            # Check if we have a valid result structure and handle different formats
+            if search_results:
+                if isinstance(search_results, list):
+                    # Direct list of results
+                    for result in search_results:
+                        if isinstance(result, dict):
+                            formatted_results.append({
+                                "text": result.get("text", ""),
+                                "metadata": result.get("metadata", {}),
+                                "score": result.get("score", 0.0)
+                            })
+                elif isinstance(search_results, dict):
+                    # Results inside a dict under 'results' key
+                    if 'results' in search_results and isinstance(search_results['results'], list):
+                        for result in search_results['results']:
+                            if isinstance(result, dict):
+                                formatted_results.append({
+                                    "text": result.get("text", ""),
+                                    "metadata": result.get("metadata", {}),
+                                    "score": result.get("score", 0.0)
+                                })
                 
             return formatted_results
         except Exception as e:

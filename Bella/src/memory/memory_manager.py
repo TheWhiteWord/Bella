@@ -97,17 +97,26 @@ class MemoryManager:
             # Check environment
             using_ollama = os.environ.get("OPENAI_BASE_URL", "").startswith(("http://localhost", "http://127.0.0.1"))
             
-            # Start with a simple configuration - use in-memory dict storage for testing
-            # This avoids issues with vector embeddings and Chroma compatibility
+            # Updated configuration using Chroma as vector store provider
             knowledge_config = {
                 "vector_store": {
-                    "provider": "dict",  # In-memory storage is most reliable
-                    "config": {}
+                    "provider": "chroma",  # Use Chroma instead of dict
+                    "config": {
+                        "collection_name": "bella_memory",
+                        "path": self.vector_store_path,
+                    }
                 }
             }
             
-            # If embedding is needed and compatible with environment, add it
-            if not using_ollama:
+            # Add embedding configuration based on environment
+            if using_ollama:
+                knowledge_config["embedding"] = {
+                    "provider": "ollama",  # Use Ollama for embeddings
+                    "config": {
+                        "model": "nomic-embed-text"  # Compatible with Ollama
+                    }
+                }
+            else:
                 # For non-Ollama setups that might have OpenAI API access
                 if "OPENAI_API_KEY" in os.environ:
                     knowledge_config["embedding"] = {
@@ -117,18 +126,6 @@ class MemoryManager:
                         }
                     }
                     
-            # For non-test environments, use persistent storage
-            production_mode = not os.environ.get("BELLA_TEST_MODE", False)
-            if production_mode:
-                # Only use chroma for production (more persistent but requires embeddings)
-                knowledge_config["vector_store"] = {
-                    "provider": "chroma",
-                    "config": {
-                        "collection_name": "bella_memory",
-                        "path": self.vector_store_path,
-                    }
-                }
-            
             # Log what we're doing
             logging.info(f"Creating Knowledge instance with config: {knowledge_config}")
             

@@ -46,31 +46,35 @@ class LongTermMemory:
             return False
             
         try:
-            # Store directly using the Knowledge API
-            # Add importance to metadata to track it
-            combined_metadata = {
-                **(metadata or {}),
-                "importance": importance,
-                "memory_type": "long_term"
-            }
+            # Ensure metadata is a dict
+            mem_metadata = metadata or {}
+            
+            # Add memory type and importance to metadata
+            mem_metadata["memory_type"] = "long_term"
+            mem_metadata["importance"] = importance
             
             # Use the store method directly on the Knowledge object
-            # Note: The Knowledge.store method isn't async, so we wrap it in an executor
-            # to avoid blocking the main thread
             loop = asyncio.get_event_loop()
             result = await loop.run_in_executor(
                 None,
                 lambda: self.manager.praison_memory.store(
                     text,
                     user_id="bella_long_term",  # Differentiate from short-term
-                    metadata=combined_metadata
+                    metadata=mem_metadata
                 )
             )
             
             # Log the result for debugging
             logging.info(f"Long-term memory store result: {result}")
             
-            return bool(result and ('success' in result and result['success'] or 'results' in result))
+            # Check for successful storage - handle different response formats
+            if isinstance(result, dict):
+                if result.get('success') is True:
+                    return True
+                if 'results' in result and result['results']:
+                    return True
+            
+            return False
             
         except Exception as e:
             logging.error(f"Failed to store long-term memory: {e}")
@@ -107,22 +111,27 @@ class LongTermMemory:
             # Format results
             formatted_results = []
             
-            # Handle different result formats
-            if search_results and isinstance(search_results, list):
-                for result in search_results:
-                    formatted_results.append({
-                        "text": result.get("text", ""),
-                        "metadata": result.get("metadata", {}),
-                        "score": result.get("score", 0.0)
-                    })
-            # Handle alternative result format with 'results' key
-            elif search_results and isinstance(search_results, dict) and 'results' in search_results:
-                for result in search_results['results']:
-                    formatted_results.append({
-                        "text": result.get("text", ""),
-                        "metadata": result.get("metadata", {}),
-                        "score": result.get("score", 0.0)
-                    })
+            # Check if we have a valid result structure and handle different formats
+            if search_results:
+                if isinstance(search_results, list):
+                    # Direct list of results
+                    for result in search_results:
+                        if isinstance(result, dict):
+                            formatted_results.append({
+                                "text": result.get("text", ""),
+                                "metadata": result.get("metadata", {}),
+                                "score": result.get("score", 0.0)
+                            })
+                elif isinstance(search_results, dict):
+                    # Results inside a dict under 'results' key
+                    if 'results' in search_results and isinstance(search_results['results'], list):
+                        for result in search_results['results']:
+                            if isinstance(result, dict):
+                                formatted_results.append({
+                                    "text": result.get("text", ""),
+                                    "metadata": result.get("metadata", {}),
+                                    "score": result.get("score", 0.0)
+                                })
                 
             return formatted_results
         except Exception as e:
@@ -154,7 +163,6 @@ class LongTermMemory:
             
         try:
             # Use the delete_all method to clear long-term memory
-            # This isn't async, so we wrap it in an executor
             loop = asyncio.get_event_loop()
             await loop.run_in_executor(
                 None,

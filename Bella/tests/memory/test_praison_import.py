@@ -141,15 +141,25 @@ def test_basic_memory():
                 print("❌ Could not import Knowledge class from any location")
                 return False
         
-        # Use the simplest possible configuration to test basic functionality
+        # Use a supported vector store configuration - chroma with minimal settings
         memory_config = {
             "vector_store": {
-                "provider": "dict",  # Use in-memory storage for testing
-                "config": {}
+                "provider": "chroma",  # Use chroma instead of dict
+                "config": {
+                    "collection_name": "bella_test",
+                    "path": ".praison/chroma_test_db"
+                }
+            },
+            # Add embedding configuration for Ollama
+            "embedding": {
+                "provider": "ollama",  # Use Ollama for embeddings
+                "config": {
+                    "model": "nomic-embed-text"  # Compatible with Ollama
+                }
             }
         }
         
-        print(f"Creating Knowledge with minimal config: {memory_config}")
+        print(f"Creating Knowledge with config: {memory_config}")
         
         # Print API key status (without revealing the key)
         if "OPENAI_API_KEY" in os.environ:
