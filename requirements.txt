@@ -24,3 +24,9 @@ misaki[en,zh]>=0.9.3   # G2P for multiple languages support
 phonemizer-fork
 
 nltk #memory
+
+# Added dependencies for enhanced embedding system
+sentence-transformers>=2.2.2  # Efficient sentence embeddings
+torch>=2.0.0                 # PyTorch for embedding models
+scikit-learn>=1.2.0         # For vector operations and similarity metrics
+faiss-cpu>=1.7.4            # Fast similarity search (optional, for larger memory stores)

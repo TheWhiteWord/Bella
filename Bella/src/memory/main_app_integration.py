@@ -10,7 +10,7 @@ import os
 
 from .enhanced_memory_adapter import EnhancedMemoryAdapter
 from .memory_api import search_notes
-from .autonomous_memory import AutonomousMemory
+from .project_manager.initialize import initialize_project_management
 
 class BellaMemoryManager:
     """Main integration point for Bella's memory systems."""
@@ -18,10 +18,11 @@ class BellaMemoryManager:
     def __init__(self):
         """Initialize the memory manager with enhanced capabilities."""
         self.enhanced_adapter = None
-        self.autonomous_memory = AutonomousMemory()
+        self.autonomous_memory = None  # Will be initialized lazily
         self._initialized = False
         self._embedding_model = "nomic-embed-text"  # Default model
-        
+        self.project_management_initialized = False
+    
     async def initialize(self, embedding_model: str = None):
         """Initialize memory systems.
         
@@ -36,8 +37,24 @@ class BellaMemoryManager:
                 # Initialize enhanced memory adapter with specified embedding model
                 self.enhanced_adapter = EnhancedMemoryAdapter(embedding_model=self._embedding_model)
                 await self.enhanced_adapter.initialize()
+                
+                # Import and initialize autonomous memory here to avoid circular imports
+                from .autonomous_memory import AutonomousMemory
+                self.autonomous_memory = AutonomousMemory()
+                
                 self._initialized = True
                 logging.info(f"Memory manager initialized successfully with {self._embedding_model}")
+                
+                # Initialize project management system
+                try:
+                    result = await initialize_project_management()
+                    if result['success']:
+                        self.project_management_initialized = True
+                        logging.info("Project management system initialized successfully")
+                    else:
+                        logging.error(f"Failed to initialize project management: {result['message']}")
+                except Exception as e:
+                    logging.error(f"Error initializing project management: {e}")
             except Exception as e:
                 logging.error(f"Error initializing memory manager: {e}")
     

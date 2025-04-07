@@ -10,13 +10,26 @@ righ now BElla has these functions that are used to manage and interact with mem
         - Use 'list_memories_by_type' when you want to see what memories are available.
 
 However the automatic memory managment and Bella function calling are creating a lot of noise in the conversation, and there is issues with duplicate memories being created, and vector store retrival, as i think the format stored in the md files by bella and by the automatic system are different.
-Note that there are no existing data taht need to be migrated, as this is a new system and the old one was not used in production.
+Note that there are no existing data that need to be migrated, as this is a new system and the old one was not used in production.
 
 So after analyzing the situation i decided to modify the Bella functions to become a system for us to work on ideas and projects.
 - The new system for memory tools that Bella has, will be more like a project management system, where we can create, edit, and delete projects. These will be more like the old system, where the user can call the functions directly, and the memory is stored in a more structured way. 
 
-- The new system for Bella function calling will have a more structured way of storing memories, with folders and files for each project:
+- The new system for Bella function calling will have a more structured way of storing memories, with folders and files for each project.
 
+# FIRST ISSUE
+The memory creation in both autonumus layer and bella function calling should be standardize first, so that the data is stored in the same format, and the vector store retrival is done in the same way.
+
+In order to do so we can take inspiration for the new method that Bella function uses to store memories, and use it for the autonomous layer as well (with any adaptation of entry taht may require)
+
+
+
+# FUNCTION CALLING NEW SYSTEM
+Once we have a standard way to store all memories we can implemnet the changes to the function calling system, and create a new system for project management.
+  
+The new system will be more like a project management system, where we can create, edit, and delete projects. These will be more like the old system, where the user can call the functions directly, and the memory is stored in a more structured way:
+
+# DESCRIPTION  
 
 - We will have a new 'projects' folder.
 - The project folder will have a list of projects, each with its own folder, each named on creation by a fuction call that will respond to the user request to "create a new folder" which will include a subject, like "create a new project, we will discuss love and war", and the assistant will create a folder named "love and war" in the projects folder, and all the standard subfolders necessary for the project.
@@ -25,7 +38,7 @@ So after analyzing the situation i decided to modify the Bella functions to beco
     - subfolder "concepts"
     - subfolder "research"
     - subfolder "content"
-The projects folder will be directly accessible for writing and retreiving by Bella function callings, but accessible by the autonomopus memory layer ONLY for reading and retreiving:
+The projects folder will be directly accessible for writing and retreiving by Bella function callings, but NOT accessible by the autonomous memory layer ONLY for reading and retreiving:
 that means that bella can read and write to the project folder, but the memory layer can only read from it, and not write to it.
 
 During the conversation, the user can call the function to:

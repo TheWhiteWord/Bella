@@ -10,6 +10,7 @@ import logging
 from typing import Dict, List, Any, Optional, Tuple, Union
 from datetime import datetime
 import re
+import numpy as np
 
 from .enhanced_memory import EnhancedMemoryProcessor
 from .memory_api import save_note, read_note, list_notes
@@ -30,6 +31,7 @@ class EnhancedMemoryAdapter:
         self._initialized = False
         self.processor = EnhancedMemoryProcessor(model_name=embedding_model)
         self.memory_dirs = ["facts", "preferences", "conversations", "reminders", "general"]
+        self._embedding_cache = {}  # Cache for frequently used embeddings
         
     async def initialize(self) -> bool:
         """Initialize the memory system.
@@ -94,11 +96,12 @@ class EnhancedMemoryAdapter:
         except Exception as e:
             logging.error(f"Error indexing existing memories: {e}")
     
-    async def search_memory(self, query: str) -> Tuple[Dict[str, Any], bool]:
+    async def search_memory(self, query: str, fast_mode: bool = False) -> Tuple[Dict[str, Any], bool]:
         """Search for relevant memories using semantic search.
         
         Args:
             query: Search query text
+            fast_mode: If True, use lightweight models for faster processing
             
         Returns:
             Tuple of (results_dict, success_status)
@@ -110,7 +113,7 @@ class EnhancedMemoryAdapter:
                 
             # Find relevant memories
             relevant_memories = await self.processor.find_relevant_memories(
-                query, threshold=0.65, top_k=5
+                query, threshold=0.6, top_k=8, fast_mode=fast_mode
             )
             
             # Format results
@@ -128,19 +131,33 @@ class EnhancedMemoryAdapter:
                 # Record access
                 self.processor.record_memory_access(memory_id)
                 
-                # Build result entry
-                result_entry = {
-                    "source": memory_id,
-                    "path": full_path,
-                    "score": score,
-                    "content_preview": self.processor.metadata.get(memory_id, {}).get("content_preview", "")
-                }
-                
-                # Add to appropriate result list
-                if i < 2 and score > 0.70:  # Primary results (higher relevance)
-                    results["primary_results"].append(result_entry)
-                else:  # Secondary results
-                    results["secondary_results"].append(result_entry)
+                try:
+                    content = await read_note(full_path)
+                    
+                    # Skip if can't read content
+                    if not content:
+                        continue
+                        
+                    # Extract a preview (first ~200 chars)
+                    content_preview = content[:200] + "..." if len(content) > 200 else content
+                    
+                    # Build result entry
+                    result_entry = {
+                        "source": memory_id,
+                        "path": full_path,
+                        "score": score,
+                        "title": note_name.replace("-", " ").title(),
+                        "content_preview": content_preview
+                    }
+                    
+                    # Add to appropriate result list
+                    if i < 3 and score > 0.70:  # Primary results (higher relevance)
+                        results["primary_results"].append(result_entry)
+                    else:  # Secondary results
+                        results["secondary_results"].append(result_entry)
+                except Exception as e:
+                    logging.warning(f"Error processing memory result {memory_id}: {e}")
+                    continue
             
             return results, True
             
@@ -149,7 +166,7 @@ class EnhancedMemoryAdapter:
             return {"primary_results": [], "secondary_results": []}, False
     
     async def should_store_memory(self, text: str) -> Tuple[bool, float]:
-        """Determine if the given text should be stored as a memory.
+        """Determine if the given text should be stored as a memory using semantic analysis.
         
         Args:
             text: Text to evaluate
@@ -256,18 +273,41 @@ class EnhancedMemoryAdapter:
             # Combine for context
             combined_text = f"User: {user_input}\nAssistant: {assistant_response}"
             
-            # Check if it's worth remembering
+            # Check if it's worth remembering using semantic importance scoring
             should_remember, importance = await self.should_store_memory(combined_text)
             
             if should_remember:
-                # Create a summary for the memory
+                # Create a memory with the conversation
                 memory_content = combined_text
+                
+                # Try to generate a meaningful title
+                topic_words = []
+                proper_nouns = re.findall(r'\b[A-Z][a-z]+\b', combined_text)
+                
+                if proper_nouns:
+                    # Use top 2 proper nouns
+                    from collections import Counter
+                    top_nouns = [noun for noun, _ in Counter(proper_nouns).most_common(2)]
+                    topic_words = top_nouns
+                else:
+                    # Extract key terms
+                    keywords = re.findall(r'\b[a-z]{4,}\b', user_input.lower())
+                    topic_words = [kw for kw in keywords if kw not in 
+                                  {"what", "when", "where", "which", "that", "this", 
+                                   "there", "their", "about", "would", "could", "should"}][:2]
+                
+                # Generate title 
+                title = "conversation-"
+                if topic_words:
+                    title += "-".join(topic_words).lower()
+                else:
+                    title += datetime.now().strftime('%Y-%m-%d-%H%M')
                 
                 # Store in conversations directory
                 success, path = await self.store_memory(
                     "conversations", 
                     memory_content, 
-                    f"conversation-on-{datetime.now().strftime('%Y-%m-%d-%H%M')}"
+                    title
                 )
                 
                 if success:
@@ -280,12 +320,12 @@ class EnhancedMemoryAdapter:
             logging.error(f"Error processing conversation turn: {e}")
             return result
 
-    # Add missing methods needed by main_app_integration.py
-    
     async def enhance_memory_retrieval(
         self, query: str, standard_results: List[Dict[str, Any]]
     ) -> List[Dict[str, Any]]:
         """Enhance standard memory retrieval with semantic understanding.
+        
+        Uses embedding similarity to improve memory retrieval and ranking.
         
         Args:
             query: Search query text
@@ -300,41 +340,23 @@ class EnhancedMemoryAdapter:
                 await self.initialize()
                 
             # Get semantic search results
-            semantic_results = await self.processor.find_relevant_memories(
-                query, threshold=0.65, top_k=5
-            )
+            semantic_results, success = await self.search_memory(query, fast_mode=True)
             
-            # Combine standard and semantic results
+            if not success:
+                return standard_results
+                
+            # Combine semantic and standard results with proper ranking
             enhanced_results = []
             
-            # Process semantic results first for priority (they're more relevant)
-            for memory_id, score in semantic_results:
-                # Skip if score too low
-                if score < 0.68:
-                    continue
-                    
-                # Read memory content
-                try:
-                    dir_name, note_name = memory_id.split('/', 1)
-                    full_path = os.path.join("memories", dir_name, note_name + ".md")
-                    content = await read_note(full_path)
-                    
-                    # Skip if can't read
-                    if not content:
-                        continue
-                        
-                    # Build enhanced result
-                    result = {
-                        "source": memory_id,
-                        "path": full_path,
-                        "score": score,
-                        "title": note_name.replace("-", " ").title(),
-                        "content_preview": content[:200] + "..." if len(content) > 200 else content
-                    }
-                    
+            # Process primary semantic results first (they're more relevant)
+            for result in semantic_results["primary_results"]:
+                enhanced_results.append(result)
+                
+            # Process secondary semantic results
+            for result in semantic_results["secondary_results"]:
+                # Only keep results with reasonable scores
+                if result["score"] >= 0.65:
                     enhanced_results.append(result)
-                except Exception:
-                    continue
             
             # Add standard results not already included
             for result in standard_results:
@@ -412,6 +434,148 @@ class EnhancedMemoryAdapter:
             logging.error(f"Error summarizing for storage: {e}")
             return text  # Return original text as fallback
     
+    async def compare_memory_similarity(self, text1: str, text2: str) -> float:
+        """Compare the semantic similarity between two text snippets.
+        
+        Args:
+            text1: First text to compare
+            text2: Second text to compare
+            
+        Returns:
+            Similarity score (0-1)
+        """
+        try:
+            # Cache embeddings for frequently compared texts
+            embedding1 = None
+            embedding2 = None
+            
+            # Check cache first
+            if text1 in self._embedding_cache:
+                embedding1 = self._embedding_cache[text1]
+            if text2 in self._embedding_cache:
+                embedding2 = self._embedding_cache[text2]
+                
+            # Generate embeddings if not cached
+            if embedding1 is None:
+                embedding1 = await self.processor.generate_embedding(text1)
+                if embedding1:
+                    self._embedding_cache[text1] = embedding1
+                    
+            if embedding2 is None:
+                embedding2 = await self.processor.generate_embedding(text2)
+                if embedding2:
+                    self._embedding_cache[text2] = embedding2
+            
+            # Calculate similarity if we have both embeddings
+            if embedding1 and embedding2:
+                # Calculate cosine similarity
+                vec1 = np.array(embedding1)
+                vec2 = np.array(embedding2)
+                
+                similarity = np.dot(vec1, vec2) / (np.linalg.norm(vec1) * np.linalg.norm(vec2))
+                return float(similarity)
+                
+            return 0.0  # Default if embeddings fail
+            
+        except Exception as e:
+            logging.error(f"Error comparing memory similarity: {e}")
+            return 0.0
+    
+    async def detect_memory_topics(self, text: str, max_topics: int = 3) -> List[str]:
+        """Extract the main topics from text using semantic understanding.
+        
+        Args:
+            text: Text to analyze
+            max_topics: Maximum number of topics to extract
+            
+        Returns:
+            List of topic strings
+        """
+        try:
+            # Define common topics to compare against
+            common_topics = [
+                "technology", "science", "philosophy", "art", "history",
+                "politics", "economics", "health", "education", "environment",
+                "travel", "food", "personal", "work", "relationships"
+            ]
+            
+            # Get embedding for input text
+            text_embedding = await self.processor.generate_embedding(text)
+            
+            if not text_embedding:
+                # Fall back to rule-based extraction
+                return self._extract_topics_rule_based(text, max_topics)
+                
+            # Calculate similarity with each topic
+            topic_scores = []
+            for topic in common_topics:
+                # Check cache first
+                if topic in self._embedding_cache:
+                    topic_embedding = self._embedding_cache[topic]
+                else:
+                    topic_embedding = await self.processor.generate_embedding(topic)
+                    if topic_embedding:
+                        self._embedding_cache[topic] = topic_embedding
+                
+                if topic_embedding:
+                    # Calculate similarity
+                    vec1 = np.array(text_embedding)
+                    vec2 = np.array(topic_embedding)
+                    similarity = np.dot(vec1, vec2) / (np.linalg.norm(vec1) * np.linalg.norm(vec2))
+                    topic_scores.append((topic, float(similarity)))
+            
+            # Sort by similarity (highest first)
+            topic_scores.sort(key=lambda x: x[1], reverse=True)
+            
+            # Return top topics
+            return [topic for topic, score in topic_scores[:max_topics] if score > 0.4]
+            
+        except Exception as e:
+            logging.error(f"Error detecting memory topics: {e}")
+            return self._extract_topics_rule_based(text, max_topics)
+    
+    def _extract_topics_rule_based(self, text: str, max_topics: int = 3) -> List[str]:
+        """Extract topics using rule-based approach (fallback).
+        
+        Args:
+            text: Text to analyze
+            max_topics: Maximum number of topics
+            
+        Returns:
+            List of topics
+        """
+        # Find proper nouns for named entities
+        proper_nouns = re.findall(r'\b[A-Z][a-z]+\b', text)
+        
+        # Find potential topic words (nouns)
+        words = re.findall(r'\b[a-z]{4,}\b', text.lower())
+        
+        # Remove stopwords
+        stopwords = {"what", "when", "where", "which", "that", "this", "there", 
+                    "their", "about", "would", "could", "should", "these", "those"}
+        filtered_words = [w for w in words if w not in stopwords]
+        
+        # Combine proper nouns and frequent words
+        topics = []
+        
+        # Add proper nouns first (up to half of max_topics)
+        if proper_nouns:
+            from collections import Counter
+            noun_counter = Counter(proper_nouns)
+            top_nouns = [noun for noun, _ in noun_counter.most_common(max(1, max_topics // 2))]
+            topics.extend(top_nouns)
+        
+        # Add common words next
+        if filtered_words:
+            from collections import Counter
+            word_counter = Counter(filtered_words)
+            remaining_slots = max_topics - len(topics)
+            if remaining_slots > 0:
+                top_words = [word for word, _ in word_counter.most_common(remaining_slots)]
+                topics.extend(top_words)
+                
+        return topics
+            
     async def _find_memory_path(self, memory_id: str) -> Optional[str]:
         """Find the file path for a memory ID.
         
@@ -442,6 +606,8 @@ class EnhancedMemoryAdapter:
         """Clean up resources used by the memory adapter."""
         if hasattr(self, 'processor'):
             self.processor.cleanup()
+        # Clear caches
+        self._embedding_cache.clear()
 
 # Singleton instance
 memory_adapter = EnhancedMemoryAdapter()
