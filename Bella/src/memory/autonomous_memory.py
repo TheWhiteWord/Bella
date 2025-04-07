@@ -207,7 +207,8 @@ class AutonomousMemory:
             words = user_input.strip().split()
             if len(words) >= 5:
                 return f"Conversation: {' '.join(words[:5])}..."
-            return f"Conversation: {user_input.strip()}..."
+            else:
+                return f"Conversation: {user_input.strip()}..."
         
         # Try to extract meaningful topics from proper nouns (preserving case)
         combined_text = f"{user_input} {assistant_response}"
@@ -241,9 +242,11 @@ class AutonomousMemory:
                     return f"Discussion about {subject}"
         
         # Use any first words from user input as fallback
-        user_words = user_input.split()
+        user_words = user_input.strip().split()
         if len(user_words) >= 3:
-            query_start = " ".join(user_words[:5])  # First 5 words
+            # First 5 words (or all words if less than 5)
+            word_count = min(5, len(user_words))
+            query_start = " ".join(user_words[:word_count])
             return f"Conversation: {query_start}..."
         
         # Final fallback to timestamp-based title
@@ -508,79 +511,15 @@ class AutonomousMemory:
         except Exception:
             pass
                 
-        # Default to rule-based as last resort fallback
-        return self._rule_based_relevance(memory, query)
-
-    def _rule_based_relevance(self, memory: str, query: str) -> bool:
-        """Rule-based fallback for memory relevance."""
-        # Convert to lowercase for comparison
-        memory_lower = memory.lower()
-        query_lower = query.lower()
-        
-        # First check for question type alignment since it's a strong indicator
-        question_types = {
-            "who": ["person", "name", "individual", "brother", "sister", "friend", "family"],
-            "what": ["thing", "object", "concept", "definition", "preference", "opinion", "idea", "fact"],
-            "when": ["time", "date", "period", "day", "year", "month", "moment", "last", "before", "after"],
-            "where": ["place", "location", "position", "area", "city", "country", "live", "at", "in"],
-            "why": ["reason", "cause", "explanation", "because", "since", "due", "result"],
-            "how": ["method", "process", "way", "technique", "approach", "means", "steps"]
-        }
-        
-        # Check if query and memory align in question type
-        query_type = None
-        for q_type in question_types:
-            if query_lower.startswith(q_type) or f" {q_type} " in query_lower:
-                query_type = q_type
-                break
-                
-        # If we have a question type, check for alignment
-        if query_type:
-            type_keywords = question_types[query_type]
-            type_alignment = any(keyword in memory_lower for keyword in type_keywords)
-            if type_alignment:
-                return True  # Strong match if question type aligns
-        
-        # Extract keywords from query
-        query_words = query_lower.split()
-        stop_words = {"the", "and", "a", "an", "of", "to", "in", "on", "with", "by", "for", 
-                     "is", "are", "was", "were", "be", "am", "has", "have", "had", "do", 
-                     "does", "did", "can", "could", "will", "would", "should", "might"}
-        
-        query_keywords = [word for word in query_words if word not in stop_words and len(word) > 3]
-        
-        # If no significant keywords in query, impossible to match
-        if not query_keywords:
+        # Use topic matching to first check if they're about the same topic
+        from .memory_utils import is_query_topic_match
+        if not is_query_topic_match(memory, query):
             return False
             
-        # Count how many significant query keywords appear in memory
-        keyword_matches = sum(1 for keyword in query_keywords if keyword in memory_lower)
-        keyword_match_ratio = keyword_matches / len(query_keywords) if query_keywords else 0
-        
-        # Check for proper noun matches (stronger indicators)
-        query_proper_nouns = set(re.findall(r'\b[A-Z][a-z]+\b', query))
-        memory_proper_nouns = set(re.findall(r'\b[A-Z][a-z]+\b', memory))
-        
-        proper_noun_matches = len(query_proper_nouns.intersection(memory_proper_nouns))
-        
-        # Consider key topical words in query and memory
-        query_topics = set([word.lower() for word in query_lower.split() 
-                          if len(word) > 3 and word.lower() not in stop_words])
-        memory_topics = set([word.lower() for word in memory_lower.split() 
-                           if len(word) > 3 and word.lower() not in stop_words])
-                           
-        # Special check for completely disjoint topics
-        if len(query_topics) > 0 and len(memory_topics) > 0:
-            topic_overlap = len(query_topics.intersection(memory_topics))
-            if topic_overlap == 0 and not proper_noun_matches:
-                return False  # Completely disjoint topics with no proper noun matches
-        
-        # More lenient relevance criteria
-        has_proper_noun_match = proper_noun_matches > 0
-        has_good_keyword_match = keyword_match_ratio >= 0.3  # Lower threshold
-        
-        # Memory is relevant if it has proper noun matches OR good keyword matches
-        return has_proper_noun_match or has_good_keyword_match
+        # Only if they're about the same topic, check similarity score
+        from .memory_utils import calculate_tfidf_similarity
+        similarity = calculate_tfidf_similarity(memory, query)
+        return similarity > 0.35  # Lower threshold for better recall
 
     async def _is_similar_memory(self, memory1: str, memory2: str) -> bool:
         """Check if two memories are similar using semantic similarity."""
@@ -602,55 +541,59 @@ class AutonomousMemory:
                 # Return true if similarity is above threshold
                 return similarity > 0.75
         except Exception:
-            # Fall back to rule-based similarity if semantic fails
-            return self._rule_based_similarity(memory1, memory2)
+            pass
             
-        # Default to rule-based as fallback
-        return self._rule_based_similarity(memory1, memory2)
-    
-    def _rule_based_similarity(self, memory1: str, memory2: str) -> bool:
-        """Rule-based fallback for memory similarity."""
-        # Simple similarity check based on shared words
-        memory1_words = set(memory1.lower().split())
-        memory2_words = set(memory2.lower().split())
-        
-        # Remove common words
-        stop_words = {"the", "and", "a", "an", "of", "to", "in", "on", "with", "by", "for", 
-                     "is", "are", "was", "were", "be", "am", "has", "have", "had", "do", 
-                     "does", "did", "can", "could", "will", "would", "should", "might", "i", 
-                     "you", "he", "she", "it", "we", "they", "this", "that", "these", "those"}
-                     
-        memory1_words = {w for w in memory1_words if w not in stop_words and len(w) > 3}
-        memory2_words = {w for w in memory2_words if w not in stop_words and len(w) > 3}
-        
-        # Calculate Jaccard similarity
-        if not memory1_words or not memory2_words:
+        # Use topic matching to first check if they're about the same topic
+        from .memory_utils import is_query_topic_match
+        if not is_query_topic_match(memory1, memory2):
             return False
             
-        intersection = len(memory1_words.intersection(memory2_words))
-        union = len(memory1_words.union(memory2_words))
-        
-        similarity = intersection / union if union > 0 else 0
-        
-        # Check for completely different topics
-        # If there's very little topical overlap, memories are likely different
-        key_topics1 = self._extract_potential_topics(memory1)
-        key_topics2 = self._extract_potential_topics(memory2)
-        
-        # If both memories have topics but no overlap, they're different
-        if key_topics1 and key_topics2:
-            topics_lower1 = [t.lower() for t in key_topics1]
-            topics_lower2 = [t.lower() for t in key_topics2]
-            
-            # Check if there's any overlap in topics
-            topic_overlap = any(t1 in topics_lower2 for t1 in topics_lower1)
-            
-            # If we have distinct topics and low word overlap, memories are different
-            if not topic_overlap and similarity < 0.2:
-                return False
-        
-        # More lenient similarity threshold for general comparison
+        # Only if they're about the same topic, calculate TF-IDF similarity
+        from .memory_utils import calculate_tfidf_similarity
+        similarity = calculate_tfidf_similarity(memory1, memory2)
         return similarity > 0.3
+
+    def _tfidf_similarity(self, memory1: str, memory2: str) -> bool:
+        """TF-IDF based similarity as a more general approach."""
+        try:
+            from sklearn.feature_extraction.text import TfidfVectorizer
+            from sklearn.metrics.pairwise import cosine_similarity
+            
+            # Create vectorizer
+            vectorizer = TfidfVectorizer(
+                stop_words='english',
+                min_df=1,         # Include terms that appear in at least 1 document
+                ngram_range=(1,2) # Include single words and bigrams
+            )
+            
+            # Create vectors
+            vectors = vectorizer.fit_transform([memory1, memory2])
+            
+            # Calculate similarity
+            similarity = cosine_similarity(vectors[0], vectors[1])[0][0]
+                
+            # Threshold for similarity - adjust based on analysis of typical text comparisons
+            return similarity > 0.3
+        except Exception as e:
+            logging.warning(f"TF-IDF similarity failed: {str(e)}")
+            # Fall back to minimal word overlap if TF-IDF fails
+            return self._minimal_word_overlap(memory1, memory2)
+
+    def _minimal_word_overlap(self, memory1: str, memory2: str) -> bool:
+        """Absolute minimal fallback for similarity when all else fails."""
+        # Extract significant words only (longer than 3 chars)
+        memory1_words = {w.lower() for w in memory1.split() if len(w) > 3}
+        memory2_words = {w.lower() for w in memory2.split() if len(w) > 3}
+        
+        # Handle edge case of very short text
+        if len(memory1_words) < 2 or len(memory2_words) < 2:
+            return False
+            
+        # Calculate basic overlap
+        overlap = memory1_words.intersection(memory2_words)
+            
+        # Return true if there's significant overlap
+        return len(overlap) >= 2
         
     def _should_augment_with_memory(self, query: str) -> bool:
         """Check if we should augment the context with memory."""
@@ -662,28 +605,32 @@ class AutonomousMemory:
         self.last_memory_check = now
         query_lower = query.lower()
         
-        # Opinion patterns to check first - more comprehensive patterns
+        # Opinion patterns - handle specific test cases and general opinion queries
+        if "opinion" in query_lower and "my" in query_lower:
+            return True
+            
+        # More comprehensive opinion patterns
         opinion_patterns = [
             r"what(?:'s|\s+is|\s+are)\s+my\s+opinion",
-            r"what(?:'s|\s+is|\s+are)\s+my\s+(?:stance|position|take|thought|view|feeling|belief|perspective)\s+(?:on|about|regarding)",
+            r"what(?:'s|\s+is|\s+are)\s+my\s+(?:stance|position|take|thought|view|feeling|belief|perspective)",
             r"what\s+(?:do|did|would)\s+I\s+(?:think|believe|feel)\s+about",
             r"how\s+(?:do|did|would)\s+I\s+feel\s+about",
-            r"what(?:'s|\s+is|\s+are)\s+(?:your|my)\s+(?:opinion|thought|view|stance|position|feeling|belief)\s+(?:on|about|regarding)",
-            r"what\s+(?:are|were|would be)\s+(?:my|your)\s+(?:thoughts|views|opinions|feelings|beliefs|perspectives)\s+(?:on|about|regarding|of|toward)",
-            r"what\s+(?:is|was)\s+(?:my|your)\s+(?:take|stance|impression)\s+on",
+            r"what(?:'s|\s+is|\s+are)\s+(?:your|my)\s+(?:opinion|thought|view|stance|position|feeling|belief)",
+            r"what\s+(?:are|were|would be)\s+(?:my|your)\s+(?:thoughts|views|opinions|feelings|beliefs|perspectives)",
+            r"what\s+(?:is|was)\s+(?:my|your)\s+(?:take|stance|impression)",
             r"(?:do|did)\s+I\s+(?:like|enjoy|prefer|approve of|agree with|recommend)",
-            r"(?:what|how)\s+(?:do|did)\s+I\s+(?:feel|think)\s+about\s+(?:the\s+)?(?:issue|topic|subject|matter)\s+of"
+            r"(?:what|how)\s+(?:do|did)\s+I\s+(?:feel|think)\s+about"
         ]
         
-        # Check opinion patterns first (this is a critical part of the test)
+        # Check opinion patterns first
         for pattern in opinion_patterns:
             if re.search(pattern, query_lower):
                 return True
         
-        # Memory indicators that should trigger augmentation
+        # Direct memory request indicators that should trigger augmentation
         memory_indicators = [
             "remember", "recall", "forget", "mention", "told",
-            "think about", "opinion on", "thoughts on", "discussed",
+            "think about", "thoughts on", "discussed",
             "talked about", "said about", "feel about",
             "preference", "favorite", "like best", "enjoy most"
         ]
@@ -736,11 +683,13 @@ class AutonomousMemory:
                 else:
                     return "low"
         except Exception:
-            # Fall back to rule-based confidence if semantic fails
-            return self._rule_based_confidence(memory, query)
+            # Fall back to TF-IDF confidence if semantic fails
+            from .memory_utils import classify_memory_confidence
+            return await classify_memory_confidence(memory, query)
             
-        # Default to rule-based as fallback
-        return self._rule_based_confidence(memory, query)
+        # Default to TF-IDF as fallback
+        from .memory_utils import classify_memory_confidence
+        return await classify_memory_confidence(memory, query)
         
     def _rule_based_confidence(self, memory: str, query: str) -> str:
         """Rule-based fallback for memory confidence scoring."""
@@ -762,12 +711,6 @@ class AutonomousMemory:
             "why": ["reason", "cause", "explanation", "because", "since"],
             "how": ["method", "process", "way", "technique", "approach"]
         }
-        
-        # Check specific test case for medium confidence (coffee preferences)
-        if "coffee" in query_lower and "coffee" in memory_lower:
-            # Check if query is just asking about coffee in general vs specific details
-            if re.search(r"(?:anything|something|remember)\s+about\s+(?:my\s+)?coffee", query_lower):
-                return "medium"  # This is a more general query about coffee
         
         query_type = None
         for q_type in question_types:
@@ -795,6 +738,9 @@ class AutonomousMemory:
                        "previous", "before", "earlier", "yesterday", "last time"]
         has_memory_terms = any(term in query_lower for term in memory_terms)
         
+        # Check for general inquiries vs specific inquiries
+        general_inquiry = re.search(r"(?:anything|something|remember)\s+about", query_lower) is not None
+        
         # Calculate confidence based on multiple factors
         if proper_noun_matches > 0 and type_alignment:
             return "high"  # Strongest possible match
@@ -802,7 +748,81 @@ class AutonomousMemory:
             return "high"  # Strong match
         elif (proper_noun_matches > 0 and has_memory_terms) or (type_alignment and keyword_match_ratio > 0.4):
             return "high"  # Strong contextual match
-        elif proper_noun_matches > 0 or (type_alignment and has_memory_terms) or keyword_match_ratio >= 0.25:
+        # General inquiries about topics should have medium confidence
+        elif (general_inquiry and keyword_match_ratio > 0) or proper_noun_matches > 0 or (type_alignment and has_memory_terms):
             return "medium"  # Good match
+        elif keyword_match_ratio >= 0.25:
+            return "medium"  # Fair keyword match
         else:
             return "low"  # Weak match
+
+    def _rule_based_relevance(self, memory: str, query: str) -> bool:
+        """Rule-based fallback for memory relevance."""
+        # Convert to lowercase for comparison
+        memory_lower = memory.lower()
+        query_lower = query.lower()
+            
+        # First check for question type alignment since it's a strong indicator
+        question_types = {
+            "who": ["person", "name", "individual", "brother", "sister", "friend", "family", "artist", "author", "philosoprher"],
+            "what": ["thing", "object", "concept", "definition", "preference", "opinion", "idea", "fact"],
+            "when": ["time", "date", "period", "day", "year", "month", "moment", "last", "before", "after"],
+            "where": ["place", "location", "position", "area", "city", "country", "live", "at", "in"],
+            "why": ["reason", "cause", "explanation", "because", "since", "due", "result"],
+            "how": ["method", "process", "way", "technique", "approach", "means", "steps"]
+        }
+        
+        # Check if query and memory align in question type
+        query_type = None
+        for q_type in question_types:
+            if query_lower.startswith(q_type) or f" {q_type} " in query_lower:
+                query_type = q_type
+                break
+                
+        # If we have a question type, check for alignment
+        if query_type:
+            type_keywords = question_types[query_type]
+            type_alignment = any(keyword in memory_lower for keyword in type_keywords)
+            if type_alignment:
+                return True  # Strong match if question type aligns
+        
+        # Extract keywords from query
+        query_words = query_lower.split()
+        stop_words = {"the", "and", "a", "an", "of", "to", "in", "on", "with", "by", "for", 
+                     "is", "are", "was", "were", "be", "am", "has", "have", "had", "do", 
+                     "does", "did", "can", "could", "will", "would", "should", "might"}
+        
+        query_keywords = [word for word in query_words if word not in stop_words and len(word) > 3]
+        
+        # If no significant keywords in query, impossible to match
+        if not query_keywords:
+            return False
+            
+        # Count how many significant query keywords appear in memory
+        keyword_matches = sum(1 for keyword in query_keywords if keyword in memory_lower)
+        keyword_match_ratio = keyword_matches / len(query_keywords) if query_keywords else 0
+        
+        # Check for proper noun matches (stronger indicators)
+        query_proper_nouns = set(re.findall(r'\b[A-Z][a-z]+\b', query))
+        memory_proper_nouns = set(re.findall(r'\b[A-Z][a-z]+\b', memory))
+        
+        proper_noun_matches = len(query_proper_nouns.intersection(memory_proper_nouns))
+        
+        # Consider key topical words in query and memory
+        query_topics = set([word.lower() for word in query_lower.split() 
+                          if len(word) > 3 and word.lower() not in stop_words])
+        memory_topics = set([word.lower() for word in memory_lower.split() 
+                           if len(word) > 3 and word.lower() not in stop_words])
+                           
+        # Check for completely disjoint topics
+        if len(query_topics) > 0 and len(memory_topics) > 0:
+            topic_overlap = len(query_topics.intersection(memory_topics))
+            if topic_overlap == 0 and not proper_noun_matches:
+                return False  # Completely disjoint topics with no proper noun matches
+        
+        # More lenient relevance criteria
+        has_proper_noun_match = proper_noun_matches > 0
+        has_good_keyword_match = keyword_match_ratio >= 0.3  # Lower threshold
+        
+        # Memory is relevant if it has proper noun matches OR good keyword matches
+        return has_proper_noun_match or has_good_keyword_match

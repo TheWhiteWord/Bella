@@ -9,6 +9,7 @@ import re
 import yaml
 import asyncio
 import uuid
+import logging
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Any, Optional, Union, Set, Tuple
@@ -32,7 +33,7 @@ class MemoryManager:
         # Create memory directory if it doesn't exist
         os.makedirs(self.memory_dir, exist_ok=True)
         
-        # Create folders for organization
+        # Create folders for organization inside the memory directory
         for folder in ['conversations', 'facts', 'preferences', 'reminders', 'general']:
             os.makedirs(os.path.join(self.memory_dir, folder), exist_ok=True)
             
@@ -787,6 +788,17 @@ class MemoryManager:
     
     def _calculate_relevance_score(self, title: str, content: str, query: str) -> float:
         """Calculate relevance score for search results."""
+        try:
+            # Use TF-IDF similarity from memory_utils for more robust scoring
+            from .memory_utils import calculate_relevance_score
+            return calculate_relevance_score(title, content, query)
+        except ImportError as e:
+            logging.warning(f"Unable to use TF-IDF for relevance scoring: {str(e)}")
+            # Fall back to original method if imports fail
+            return self._legacy_relevance_score(title, content, query)
+            
+    def _legacy_relevance_score(self, title: str, content: str, query: str) -> float:
+        """Legacy method for calculating relevance score without scikit-learn."""
         query_lower = query.lower()
         title_lower = title.lower()
         content_lower = content.lower()

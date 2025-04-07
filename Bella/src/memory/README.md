@@ -169,3 +169,9 @@ This is the content of the entry...
 ```
 
 This system allows for both autonomous memory capabilities and explicit project management, providing a comprehensive memory solution for Bella with semantic understanding powered by embedding models.
+
+## Dependencies
+
+The Bella Memory System relies on the following Python libraries:
+
+- **scikit-learn**: Used for machine learning operations, including clustering and similarity calculations.

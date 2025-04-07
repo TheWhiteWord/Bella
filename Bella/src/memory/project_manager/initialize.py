@@ -37,7 +37,7 @@ async def initialize_project_management(base_dir: str = None) -> Dict[str, Any]:
     os.makedirs(projects_dir, exist_ok=True)
     
     # Register standard folders if they don't exist
-    memories_dir = os.path.dirname(project_manager.base_dir)
+    memories_dir = project_manager.base_dir  # Use base_dir directly (memories directory)
     for folder in ['conversations', 'facts', 'preferences', 'reminders', 'general']:
         folder_path = os.path.join(memories_dir, folder)
         os.makedirs(folder_path, exist_ok=True)
