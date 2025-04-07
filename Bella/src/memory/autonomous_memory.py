@@ -17,7 +17,7 @@ import numpy as np
 from .main_app_integration import memory_manager
 from .project_manager.memory_integration import get_memory_integration
 
-
+# Ensure the memory_manager is initialized before use
 class AutonomousMemory:
     """Autonomous memory system that works in the background during conversations."""
 
@@ -225,7 +225,7 @@ class AutonomousMemory:
                 logging.info(f"Semantic check indicates conversation should be stored (Score: {importance_score:.2f}).")
                 metadata["importance_score"] = importance_score
                 # Add tags based on importance or detected topics
-                if importance_score > 0.85:  # Example threshold for 'important' tag
+                if importance_score >= 0.85:  # Example threshold for 'important' tag
                     metadata["tags"].append("important")
                     metadata["is_important"] = True
                 elif importance_score > 0.7:
@@ -340,54 +340,49 @@ class AutonomousMemory:
 
         # --- Simplified Intent Checks ---
         # 1. Explicit memory recall phrases (high confidence)
+        #    Use simpler substring checks
         explicit_recall_indicators = [
             "remember what i told you", "recall what i said", "what did i tell you about",
             "what did i say about", "what have i told you", "do you remember when i",
             "remember when i mentioned", "recall when i told you", "what was my opinion on",
             "what did i think about", "remind me about"
         ]
+        # --- FIX: Use simple 'in' check ---
         if any(indicator in query_lower for indicator in explicit_recall_indicators):
-            logging.debug("Query contains explicit memory recall indicator.")
+            logging.debug(f"Query contains explicit memory recall indicator: '{query_lower}'")
             return True
 
         # 2. Queries about personal preferences, thoughts, or past statements (medium confidence)
         personal_query_patterns = [
             r"\bmy\s+(opinion|thought|view|preference|stance|position|take|feeling|belief|perspective|interpretation|understanding)\b",
-            r"\b(what|how)\s+(do|did|would)\s+I\s+(think|believe|feel|say|interpret)\b",
-            r"\b(do|did)\s+I\s+(like|enjoy|prefer|agree|mention|say)\b",
+            r"\b(what|how)\s+(do|did|would)\s+i\s+(think|believe|feel|say|interpret)\b", # Ensure 'i' is lowercase
+            r"\b(what|how)\s+(is|was|were)\s+my\s+(opinion|thought|view|preference|stance|position|take|feeling|belief|perspective|interpretation|understanding)\b",
+            r"\b(do|did)\s+i\s+(like|enjoy|prefer|agree|mention|say)\b", # Ensure 'i' is lowercase
             r"\bregarding\s+our\s+last\s+discussion\b",
-            r"\bbased\s+on\s+what\s+I\s+said\b"
+            r"\bbased\s+on\s+what\s+i\s+said\b" # Ensure 'i' is lowercase
         ]
         if any(re.search(pattern, query_lower) for pattern in personal_query_patterns):
-            logging.debug("Query appears to be about user's past statements or opinions.")
-            return True
+             logging.debug(f"Query appears to be about user's past statements or opinions: '{query_lower}'")
+             return True
 
         # 3. General questions that *might* benefit from memory (lower confidence - rely on semantic search relevance)
-        # Check for question words combined with terms that often relate to past context
         question_words = {"what", "how", "why", "when", "where", "who", "did", "do", "was", "is"}
         context_terms = {"about", "regarding", "concerning", "on", "related to", "discussion"}
-
         query_words = set(query_lower.split())
         has_question = bool(question_words.intersection(query_words))
         has_context_term = bool(context_terms.intersection(query_words))
-
-        # If it's a question containing context terms, it's worth *trying* a semantic search.
-        # The relevance check later (`_is_memory_relevant_to_query`) will filter out irrelevant results.
         if has_question and has_context_term:
-            logging.debug("Query is a question with context terms, proceeding to semantic search check.")
-            return True
+             logging.debug("Query is a question with context terms, proceeding to semantic search check.")
+             return True
 
         # --- Avoid Augmenting General Knowledge Queries ---
-        # Filter out simple "what is X" or "tell me about Y" if they don't contain personal references
         general_knowledge_patterns = [
             r"^(what|who)\s+(is|are|was|were)\s+(a|an|the)?\s*([a-z\s]+)\??$",
             r"^(tell|explain|describe)\s+(me\s+)?about\s+(a|an|the)?\s*([a-z\s]+)\??$",
             r"^define\s+([a-z\s]+)\??$"
         ]
-        # Check if it looks like a general query AND lacks personal/memory terms
         is_general_query = any(re.match(pattern, query_lower) for pattern in general_knowledge_patterns)
         lacks_personal_terms = not any(term in query_lower for term in ["my", "i said", "i told", "i think", "remember", "recall"])
-
         if is_general_query and lacks_personal_terms:
             logging.debug("Query identified as general knowledge request, skipping memory augmentation.")
             return False
