@@ -1,6 +1,7 @@
 """Tests for the autonomous memory system.
 
-Tests the functionality of the autonomous memory system with the new standardized format.
+Tests the functionality of the autonomous memory system with the new standardized format,
+focusing on philosophical, artistic, and consciousness-related content.
 """
 
 import os
@@ -83,24 +84,25 @@ async def test_should_store_conversation(memory_system):
     assert not should_store
     
     # Test case 2: Conversations with important indicators should be stored
-    important_input = "Please remember this is very important information about AI"
-    important_output = "I'll make sure to remember that AI is an important topic for discussion"
+    important_input = "Please remember this profound insight about consciousness and free will"
+    important_output = "I'll make note of your perspective on consciousness being an emergent property that gives rise to the illusion of free will"
     should_store, metadata = memory_system._should_store_conversation(important_input, important_output)
     assert should_store
     assert "important" in metadata["tags"]
     assert "conversation" in metadata["tags"]
     
-    # Test case 3: Conversations with multiple proper nouns should be stored
-    proper_noun_input = "I want to tell you about Amazon and Google and Facebook"
-    proper_noun_output = "That's interesting information about these major tech companies Amazon, Google and Facebook"
-    should_store, metadata = memory_system._should_store_conversation(proper_noun_input, proper_noun_output)
+    # Test case 3: Conversations with multiple philosophical concepts should be stored
+    philosophical_input = "I want to discuss how Hegel's dialectic relates to Kant's transcendental idealism and Nietzsche's perspectivism"
+    philosophical_output = "That's a fascinating intersection of philosophical frameworks. Hegel's dialectic process of thesis-antithesis-synthesis does seem to build upon yet critique Kant's transcendental idealism, while Nietzsche's perspectivism challenges both by rejecting absolute truth claims altogether."
+    should_store, metadata = memory_system._should_store_conversation(philosophical_input, philosophical_output)
     assert should_store
-    assert any("Amazon" in tag for tag in metadata["tags"])
-    assert any("Google" in tag for tag in metadata["tags"])
+    assert any("Hegel" in tag for tag in metadata["tags"])
+    assert any("Kant" in tag for tag in metadata["tags"])
+    assert any("Nietzsche" in tag for tag in metadata["tags"])
     
     # Test case 4: Long conversations should be stored
-    long_input = "I'm wondering about the philosophical implications " + "of consciousness " * 20
-    long_output = "That's a fascinating question about consciousness. " + "Let me explore that with you. " * 20
+    long_input = "I'm wondering about the nature of aesthetic experience " + "and how art creates transcendent meaning " * 20
+    long_output = "That's a profound question about aesthetics. " + "The phenomenology of artistic experience suggests that meaning emerges through both creator and observer. " * 20
     should_store, metadata = memory_system._should_store_conversation(long_input, long_output)
     assert should_store
     assert "detailed" in metadata["tags"]
@@ -110,45 +112,45 @@ async def test_should_store_conversation(memory_system):
 async def test_generate_title_from_content(memory_system):
     """Test the title generation logic for memories."""
     
-    # Patch the subject regex to ensure it captures "theory of relativity"
+    # Patch the subject regex to ensure it captures philosophical topics
     with patch.object(memory_system, '_extract_potential_topics', 
-                      return_value=["theory", "relativity", "Einstein"]):
+                      return_value=["consciousness", "qualia", "phenomenology"]):
         # Test case 1: Subject mention pattern
-        subject_input = "Tell me about the theory of relativity"
-        subject_output = "The theory of relativity was developed by Einstein"
+        subject_input = "Tell me about the hard problem of consciousness"
+        subject_output = "The hard problem of consciousness, as David Chalmers articulated it, concerns explaining why we have qualitative subjective experiences"
         title = memory_system._generate_title_from_content(subject_input, subject_output)
-        assert "theory" in title.lower() or "relativity" in title.lower() or "einstein" in title.lower()
+        assert "consciousness" in title.lower() or "qualia" in title.lower() or "phenomenology" in title.lower()
     
-    # Test case 2: Proper noun extraction
-    proper_noun_input = "What's the relationship between Google and DeepMind?"
-    proper_noun_output = "Google acquired DeepMind in 2014"
+    # Test case 2: Proper noun extraction for philosophers
+    proper_noun_input = "What's the relationship between Sartre and Camus regarding existentialism?"
+    proper_noun_output = "While both Sartre and Camus are associated with existentialist philosophy, Camus rejected the label, preferring to be known for his absurdism"
     title = memory_system._generate_title_from_content(proper_noun_input, proper_noun_output)
-    assert "Google" in title or "DeepMind" in title
+    assert "Sartre" in title or "Camus" in title or "existentialism" in title.lower()
     
-    # Test case 3: First words fallback
-    generic_input = "what is the best way to learn programming?"
-    generic_output = "There are many approaches to learning programming"
+    # Test case 3: First words fallback for philosophical questions
+    generic_input = "what is the nature of truth in a post-factual society?"
+    generic_output = "The nature of truth in a post-factual society raises complex epistemological questions"
     title = memory_system._generate_title_from_content(generic_input, generic_output)
     # Check that the title includes the first few words of the query
-    assert "what is the best way" in title.lower()
+    assert "what is the nature of truth" in title.lower()
 
 
 @pytest.mark.asyncio
 async def test_process_conversation_turn_store(memory_system):
     """Test that conversations are properly stored in memory."""
-    user_input = "Remember that I prefer coffee with no sugar and a splash of milk"
-    assistant_response = "I'll remember your coffee preference: no sugar with a splash of milk. Is there anything else about your preferences you'd like me to note?"
+    user_input = "Remember that I find Camus' concept of absurdism more compelling than Sartre's existentialism because it acknowledges the inherent meaninglessness of existence while still finding value in the struggle"
+    assistant_response = "I'll remember your philosophical preference for Camus' absurdism over Sartre's existentialism, particularly your appreciation for how Camus acknowledges life's inherent meaninglessness while finding value in the human struggle. Is there a specific work by Camus that resonates most with you?"
     
     # Mock the save_standardized_memory to return proper data
     memory_system.memory_integration.save_standardized_memory = AsyncMock(
-        return_value={"success": True, "path": "memories/conversations/coffee-preference.md"}
+        return_value={"success": True, "path": "memories/conversations/philosophical-preferences.md"}
     )
     
     # Use patching for _should_store_conversation
     with patch.object(memory_system, '_should_store_conversation', 
-                      return_value=(True, {"tags": ["preference", "coffee"]})):
+                      return_value=(True, {"tags": ["philosophy", "existentialism", "absurdism"]})):
         with patch.object(memory_system, '_generate_title_from_content', 
-                          return_value="Coffee Preference"):
+                          return_value="Philosophical Preference: Camus over Sartre"):
             # Process the conversation turn
             modified_response, context = await memory_system.process_conversation_turn(user_input, assistant_response)
             
@@ -162,21 +164,21 @@ async def test_process_conversation_turn_store(memory_system):
             # Check call arguments
             assert args[0] == "conversations"  # memory type
             assert "User:" in args[1] and "Assistant:" in args[1]  # content
-            assert args[2] == "Coffee Preference"  # title
-            assert "preference" in kwargs.get("tags", []) or "coffee" in kwargs.get("tags", [])
+            assert args[2] == "Philosophical Preference: Camus over Sartre"  # title
+            assert "philosophy" in kwargs.get("tags", []) or "existentialism" in kwargs.get("tags", [])
 
 
 @pytest.mark.asyncio
 async def test_process_conversation_turn_retrieve(memory_system):
     """Test retrieving relevant memories for a query."""
-    user_query = "What do you remember about my coffee preferences?"
+    user_query = "What do you remember about my views on consciousness and free will?"
     
     # Mock the search function to return a relevant result
     mock_result = {
         'success': True,
         'results': [{
-            'title': 'Coffee Preference',
-            'preview': 'You prefer coffee with no sugar and a splash of milk',
+            'title': 'Consciousness and Free Will Discussion',
+            'preview': 'You believe consciousness is an emergent property that gives rise to the illusion of free will, though you find the compatibilist position interesting',
             'score': 0.92,
         }]
     }
@@ -196,7 +198,8 @@ async def test_process_conversation_turn_retrieve(memory_system):
                     assert context is not None
                     assert context.get('has_memory_context') is True
                     assert 'memory_response' in context
-                    assert 'You prefer coffee' in context.get('memory_response', '') or 'Coffee Preference' in context.get('memory_source', '')
+                    assert ('consciousness' in context.get('memory_response', '').lower() or 
+                           'free will' in context.get('memory_response', '').lower())
                     assert context.get('confidence') == 'high'
 
 
@@ -210,39 +213,39 @@ async def test_is_knowledge_seeking_query(memory_system):
     # We need to patch the main_app_integration.memory_manager which is imported in the method
     with patch('src.memory.main_app_integration.memory_manager', new=mock_manager):
         # Simple cases that should work without embeddings
-        assert await memory_system._is_knowledge_seeking_query("What do you remember about my preferences?")
-        assert await memory_system._is_knowledge_seeking_query("Can you recall what I told you about my job?")
-        assert await memory_system._is_knowledge_seeking_query("What did I mention about my family?")
+        assert await memory_system._is_knowledge_seeking_query("What do you remember about my views on phenomenology?")
+        assert await memory_system._is_knowledge_seeking_query("Can you recall what I told you about my interpretation of Plato's cave allegory?")
+        assert await memory_system._is_knowledge_seeking_query("What did I mention about my favorite philosophical works?")
         
         # Negative cases
-        assert not await memory_system._is_knowledge_seeking_query("What is Python?")
-        assert not await memory_system._is_knowledge_seeking_query("Tell me a joke")
+        assert not await memory_system._is_knowledge_seeking_query("What is phenomenology?")
+        assert not await memory_system._is_knowledge_seeking_query("Tell me about Nietzsche's concept of eternal recurrence")
 
 
 @pytest.mark.asyncio
 async def test_extract_potential_topics(memory_system):
     """Test topic extraction from text."""
     
-    # Test extraction of proper nouns
-    text_with_proper_nouns = "I like Google and Microsoft products better than Apple's"
+    # Test extraction of philosophical proper nouns
+    text_with_proper_nouns = "I prefer Heidegger and Wittgenstein's approaches to language over Frege's"
     topics = memory_system._extract_potential_topics(text_with_proper_nouns)
-    assert "Google" in topics
-    assert "Microsoft" in topics
-    assert "Apple" in topics
+    assert "Heidegger" in topics
+    assert "Wittgenstein" in topics
+    assert "Frege" in topics
     
-    # Test extraction of important terms
-    text_with_terms = "Let's discuss philosophy and consciousness"
+    # Test extraction of important philosophical terms
+    text_with_terms = "Let's discuss epistemology and consciousness in depth"
     topics = memory_system._extract_potential_topics(text_with_terms)
-    assert any(topic.lower() == "philosophy" for topic in topics)
+    assert any(topic.lower() == "epistemology" for topic in topics)
     assert any(topic.lower() == "consciousness" for topic in topics)
     
-    # Test extraction of noun phrases
-    text_with_phrases = "I like my blue jacket and your red shoes"
+    # Test extraction of philosophical noun phrases
+    text_with_phrases = "I find phenomenological inquiry and transcendental idealism fascinating"
     topics = memory_system._extract_potential_topics(text_with_phrases)
-    assert "blue jacket" in topics
+    assert "phenomenological inquiry" in topics or "transcendental idealism" in topics
     
     # Test limiting to top topics
-    long_text = "Google Microsoft Apple Amazon Facebook Twitter Netflix Spotify Uber"
+    long_text = "Plato Aristotle Kant Hegel Nietzsche Sartre Camus Wittgenstein Heidegger Foucault"
     topics = memory_system._extract_potential_topics(long_text)
     assert len(topics) <= 3  # Should be limited to top 3
 
@@ -256,36 +259,36 @@ async def test_is_memory_relevant_to_query(memory_system):
     
     with patch('src.memory.main_app_integration.memory_manager', new=mock_manager):
         # Test using TF-IDF similarity directly to ensure test independence
-        # Strong keyword match
-        memory = "I prefer coffee with no sugar and a splash of milk"
-        query = "What are my coffee preferences?"
+        # Strong keyword match - philosophical example
+        memory = "I believe consciousness is an emergent property of complex neural systems, though it remains fundamentally mysterious"
+        query = "What are my thoughts on the hard problem of consciousness?"
         similarity = calculate_tfidf_similarity(memory, query)
         assert similarity > 0.3  # Verify with direct TF-IDF that these are similar
         
-        # Test proper noun match
-        memory = "I visited Paris last summer and loved the Eiffel Tower"
-        query = "What do you know about my trip to Paris?"
+        # Test proper noun match with philosophers
+        memory = "I find Kierkegaard's concept of anxiety particularly insightful regarding human freedom"
+        query = "What do you know about my interest in Kierkegaard?"
         similarity = calculate_tfidf_similarity(memory, query)
         assert similarity > 0.3  # Verify with direct TF-IDF that these are similar
         
-        # Test irrelevant memory - using TF-IDF should confirm these are different
-        memory = "I have a dog named Max"
-        query = "What are my coffee preferences?"
+        # Test irrelevant philosophical memory - using TF-IDF should confirm these are different
+        memory = "I find Kant's categorical imperative to be a compelling ethical framework"
+        query = "What are my views on phenomenology and consciousness?"
         similarity = calculate_tfidf_similarity(memory, query)
         assert similarity < 0.3  # Verify with direct TF-IDF that these are NOT similar
         
         # Now test the actual method implementation with our verified examples
         assert await memory_system._is_memory_relevant_to_query(
-            "I prefer coffee with no sugar and a splash of milk", 
-            "What are my coffee preferences?"
+            "I believe consciousness is an emergent property of complex neural systems, though it remains fundamentally mysterious", 
+            "What are my thoughts on the hard problem of consciousness?"
         )
         assert await memory_system._is_memory_relevant_to_query(
-            "I visited Paris last summer and loved the Eiffel Tower",
-            "What do you know about my trip to Paris?"
+            "I find Kierkegaard's concept of anxiety particularly insightful regarding human freedom",
+            "What do you know about my interest in Kierkegaard?"
         )
         assert not await memory_system._is_memory_relevant_to_query(
-            "I have a dog named Max",
-            "What are my coffee preferences?"
+            "I find Kant's categorical imperative to be a compelling ethical framework",
+            "What are my views on phenomenology and consciousness?"
         )
 
 
@@ -298,26 +301,26 @@ async def test_is_similar_memory(memory_system):
     
     with patch('src.memory.main_app_integration.memory_manager', new=mock_manager):
         # Test using TF-IDF similarity directly to ensure test independence
-        # Similar memories
-        memory1 = "I prefer coffee with no sugar and a splash of milk"
-        memory2 = "My coffee preference is black coffee with a little bit of milk and no sugar"
+        # Similar philosophical memories
+        memory1 = "I believe aesthetic experience transcends rational understanding and connects us to deeper truths"
+        memory2 = "My view on aesthetics is that art reaches beyond rationality to reveal profound truths about existence"
         similarity = calculate_tfidf_similarity(memory1, memory2)
         assert similarity > 0.3  # Verify with direct TF-IDF that these are similar
         
-        # Different memories
-        memory1 = "I prefer coffee with no sugar and a splash of milk"
-        memory2 = "I have a dog named Max who is a golden retriever"
+        # Different philosophical memories
+        memory1 = "I believe consciousness arises from complex neural interactions but remains fundamentally irreducible"
+        memory2 = "Kant's transcendental idealism suggests that we can never know things-in-themselves"
         similarity = calculate_tfidf_similarity(memory1, memory2)
         assert similarity < 0.3  # Verify with direct TF-IDF that these are NOT similar
         
         # Now test the actual method implementation with our verified examples
         assert await memory_system._is_similar_memory(
-            "I prefer coffee with no sugar and a splash of milk",
-            "My coffee preference is black coffee with a little bit of milk and no sugar"
+            "I believe aesthetic experience transcends rational understanding and connects us to deeper truths",
+            "My view on aesthetics is that art reaches beyond rationality to reveal profound truths about existence"
         )
         assert not await memory_system._is_similar_memory(
-            "I prefer coffee with no sugar and a splash of milk",
-            "I have a dog named Max who is a golden retriever"
+            "I believe consciousness arises from complex neural interactions but remains fundamentally irreducible",
+            "Kant's transcendental idealism suggests that we can never know things-in-themselves"
         )
 
 
@@ -329,22 +332,22 @@ async def test_should_augment_with_memory(memory_system):
     memory_system.last_memory_check = datetime.now() - timedelta(seconds=30)
     
     # Test opinion/preference question using the function directly
-    opinion_query = "What's my opinion on climate change?"
-    assert "opinion" in opinion_query.lower() and "my" in opinion_query.lower()
+    opinion_query = "What's my view on the mind-body problem?"
+    assert "view" in opinion_query.lower() and "my" in opinion_query.lower()
     assert memory_system._should_augment_with_memory(opinion_query)
     
     # Now test with patched knowledge seeking
     with patch.object(memory_system, '_is_knowledge_seeking_query', new_callable=AsyncMock, return_value=True):
-        # Test direct memory request
-        assert memory_system._should_augment_with_memory("Remember what I told you about my dog?")
+        # Test direct memory request about philosophical topic
+        assert memory_system._should_augment_with_memory("Remember what I told you about my interpretation of Nietzsche?")
     
-    # Test non-memory related query
+    # Test non-memory related philosophical query
     with patch.object(memory_system, '_is_knowledge_seeking_query', new_callable=AsyncMock, return_value=False):
-        assert not memory_system._should_augment_with_memory("What's the weather like today?")
+        assert not memory_system._should_augment_with_memory("What is Hegel's dialectic method?")
     
     # Test throttling by time
     memory_system.last_memory_check = datetime.now()  # Reset to current time
-    assert not memory_system._should_augment_with_memory("Remember what I told you about my dog?")
+    assert not memory_system._should_augment_with_memory("Remember what I told you about my interpretation of free will?")
 
 
 @pytest.mark.asyncio
@@ -358,20 +361,20 @@ async def test_calculate_memory_confidence(memory_system):
         # Test using TF-IDF similarity to verify confidence rating
         
         # High confidence case - direct test with TF-IDF first
-        memory = "I visited Paris last summer and loved the Eiffel Tower"
-        query = "What do you remember about my trip to Paris and the Eiffel Tower?"
+        memory = "I believe Camus' concept of the absurd is more honest than Sartre's existentialism because it acknowledges the fundamental meaninglessness of existence"
+        query = "What do you remember about my thoughts on Camus versus Sartre?"
         similarity = calculate_tfidf_similarity(memory, query)
         assert similarity > 0.6  # This should be high confidence
         
         # Medium confidence case - direct test with TF-IDF first
-        memory = "I prefer coffee with no sugar and a splash of milk"
-        query = "Remember anything about my coffee?"
+        memory = "I find phenomenology to be a compelling approach to understanding consciousness"
+        query = "Remember anything about my views on consciousness?"
         similarity = calculate_tfidf_similarity(memory, query)
         assert 0.3 < similarity < 0.6  # This should be medium confidence
         
         # Low confidence case - direct test with TF-IDF first
-        memory = "I prefer coffee with no sugar and a splash of milk"
-        query = "What beverages do I like?"
+        memory = "I find phenomenology to be a compelling approach to understanding consciousness"
+        query = "What philosophical topics interest me?"
         similarity = calculate_tfidf_similarity(memory, query)
         assert similarity < 0.3  # This should be low confidence
         
@@ -380,28 +383,28 @@ async def test_calculate_memory_confidence(memory_system):
         
         # Test high confidence
         confidence = await classify_memory_confidence(
-            "I visited Paris last summer and loved the Eiffel Tower",
-            "What do you remember about my trip to Paris and the Eiffel Tower?"
+            "I believe Camus' concept of the absurd is more honest than Sartre's existentialism because it acknowledges the fundamental meaninglessness of existence",
+            "What do you remember about my thoughts on Camus versus Sartre?"
         )
         assert confidence == "high"
         
         # Test medium confidence
         confidence = await classify_memory_confidence(
-            "I prefer coffee with no sugar and a splash of milk", 
-            "Remember anything about my coffee?"
+            "I find phenomenology to be a compelling approach to understanding consciousness", 
+            "Remember anything about my views on consciousness?"
         )
         assert confidence == "medium"
         
         # Test method directly
         confidence = await memory_system._calculate_memory_confidence(
-            "I visited Paris last summer and loved the Eiffel Tower",
-            "What do you remember about my trip to Paris and the Eiffel Tower?"
+            "I believe Camus' concept of the absurd is more honest than Sartre's existentialism because it acknowledges the fundamental meaninglessness of existence",
+            "What do you remember about my thoughts on Camus versus Sartre?"
         )
         assert confidence == "high"
         
         confidence = await memory_system._calculate_memory_confidence(
-            "I prefer coffee with no sugar and a splash of milk",
-            "Remember anything about my coffee?"
+            "I find phenomenology to be a compelling approach to understanding consciousness",
+            "Remember anything about my views on consciousness?"
         )
         assert confidence == "medium"
 

@@ -1,26 +1,24 @@
 """Enhanced memory processor with semantic search capabilities.
 
-This module provides semantic memory capabilities using embeddings from various models.
+This module provides semantic memory capabilities using embeddings from Ollama models.
 It handles embedding generation, vector storage, and semantic search.
 """
 
 import os
-import asyncio
 import json
 import logging
 import time
-from typing import Dict, List, Any, Optional, Tuple, Union, Literal
-from pathlib import Path
+from typing import Dict, List, Any, Optional, Tuple
 import numpy as np
 from datetime import datetime
 import aiohttp
 from functools import lru_cache
 
 class EmbeddingModelManager:
-    """Manager for handling different embedding models.
+    """Manager for handling different embedding models via Ollama.
     
     This class provides a unified interface for generating embeddings from
-    different models, including Ollama local models and potential HuggingFace models.
+    different Ollama models.
     """
     
     def __init__(self, primary_model: str = "nomic-embed-text"):
@@ -33,12 +31,10 @@ class EmbeddingModelManager:
         self.ollama_base_url = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
         self.available_models = {
             "nomic-embed-text": {
-                "source": "ollama",
                 "dimensions": 768,
                 "description": "General purpose embedding model from Nomic AI"
             },
             "all-minilm": {
-                "source": "ollama",
                 "dimensions": 384,
                 "description": "Lightweight, fast embedding model for similarity tasks"
             }
@@ -55,46 +51,40 @@ class EmbeddingModelManager:
             return True
             
         try:
-            # Check for Ollama models first
-            if self.available_models[self.primary_model]["source"] == "ollama":
-                # Check if model is already available in Ollama
-                async with aiohttp.ClientSession() as session:
-                    async with session.get(f"{self.ollama_base_url}/api/tags") as response:
-                        if response.status == 200:
-                            data = await response.json()
-                            for model in data.get("models", []):
-                                if model["name"] == self.primary_model:
-                                    logging.info(f"Embedding model '{self.primary_model}' is available")
-                                    self._models_checked = True
-                                    return True
-                        
-                # If we get here, model isn't available - attempt to pull
-                logging.info(f"Embedding model '{self.primary_model}' not found, attempting to pull...")
-                
-                async with aiohttp.ClientSession() as session:
-                    async with session.post(
-                        f"{self.ollama_base_url}/api/pull",
-                        json={"name": self.primary_model}
-                    ) as response:
-                        if response.status == 200:
-                            # Wait for response to complete
-                            while True:
-                                chunk = await response.content.readline()
-                                if not chunk:
-                                    break
-                                
-                            logging.info(f"Successfully pulled embedding model '{self.primary_model}'")
-                            self._models_checked = True
-                            return True
-                        else:
-                            error_text = await response.text()
-                            logging.error(f"Failed to pull model: {error_text}")
-                            return False
+            # Check if model is already available in Ollama
+            async with aiohttp.ClientSession() as session:
+                async with session.get(f"{self.ollama_base_url}/api/tags") as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        for model in data.get("models", []):
+                            if model["name"] == self.primary_model:
+                                logging.info(f"Embedding model '{self.primary_model}' is available")
+                                self._models_checked = True
+                                return True
+                    
+            # If we get here, model isn't available - attempt to pull
+            logging.info(f"Embedding model '{self.primary_model}' not found, attempting to pull...")
             
-            # For HuggingFace models, we'll check lazily when first used
-            self._models_checked = True
-            return True
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    f"{self.ollama_base_url}/api/pull",
+                    json={"name": self.primary_model}
+                ) as response:
+                    if response.status == 200:
+                        # Wait for response to complete
+                        while True:
+                            chunk = await response.content.readline()
+                            if not chunk:
+                                break
                             
+                        logging.info(f"Successfully pulled embedding model '{self.primary_model}'")
+                        self._models_checked = True
+                        return True
+                    else:
+                        error_text = await response.text()
+                        logging.error(f"Failed to pull model: {error_text}")
+                        return False
+                        
         except Exception as e:
             logging.error(f"Error ensuring embedding model availability: {e}")
             return False
@@ -104,7 +94,7 @@ class EmbeddingModelManager:
                                text: str, 
                                model_name: str = None, 
                                normalize: bool = True) -> Optional[List[float]]:
-        """Generate an embedding vector for text.
+        """Generate an embedding vector for text using Ollama models.
         
         Args:
             text: Text to embed
@@ -123,16 +113,8 @@ class EmbeddingModelManager:
                 logging.warning(f"Unknown model '{model_name}', falling back to {self.primary_model}")
                 model_name = self.primary_model
             
-            model_source = self.available_models[model_name]["source"]
-            
-            # Generate using appropriate method based on source
-            if model_source == "ollama":
-                embedding = await self._generate_ollama_embedding(text, model_name)
-            elif model_source == "huggingface":
-                embedding = await self._generate_huggingface_embedding(text, model_name)
-            else:
-                logging.error(f"Unknown model source '{model_source}'")
-                return None
+            # Generate embedding via Ollama API
+            embedding = await self._generate_ollama_embedding(text, model_name)
                 
             # Normalize if requested
             if embedding and normalize:
@@ -178,57 +160,6 @@ class EmbeddingModelManager:
             logging.error(f"Error generating Ollama embedding: {e}")
             return None
             
-    async def _generate_huggingface_embedding(self, text: str, model_name: str) -> Optional[List[float]]:
-        """Generate embedding using HuggingFace model.
-        
-        Args:
-            text: Text to embed
-            model_name: HuggingFace model name
-            
-        Returns:
-            Embedding vector or None if failed
-        """
-        try:
-            # Lazy-load transformers if needed
-            try:
-                from transformers import AutoTokenizer, AutoModel
-                import torch
-                import torch.nn.functional as F
-            except ImportError:
-                logging.error("transformers package not available for HuggingFace models")
-                return None
-            
-            # For now, use the sentence-transformers models
-            # These are used with mean pooling as described in HuggingFace docs
-            model_path = f"sentence-transformers/{model_name}"
-            
-            # Load tokenizer and model (with caching)
-            tokenizer = AutoTokenizer.from_pretrained(model_path)
-            model = AutoModel.from_pretrained(model_path)
-            
-            # Create inputs
-            inputs = tokenizer(text, return_tensors='pt', padding=True, truncation=True, max_length=512)
-            
-            # Get embeddings
-            with torch.no_grad():
-                outputs = model(**inputs)
-            
-            # Mean pooling
-            token_embeddings = outputs.last_hidden_state
-            attention_mask = inputs['attention_mask']
-            input_mask_expanded = attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
-            
-            # Sum and normalize
-            sum_embeddings = torch.sum(token_embeddings * input_mask_expanded, 1)
-            sum_mask = torch.clamp(input_mask_expanded.sum(1), min=1e-9)
-            embedding = (sum_embeddings / sum_mask).squeeze().tolist()
-            
-            return embedding
-            
-        except Exception as e:
-            logging.error(f"Error generating HuggingFace embedding: {e}")
-            return None
-            
     def get_model_dimensions(self, model_name: str = None) -> int:
         """Get the dimensions of the specified model's embeddings.
         
@@ -246,6 +177,7 @@ class EmbeddingModelManager:
         else:
             # Default to primary model dimensions as fallback
             return self.available_models[self.primary_model]["dimensions"]
+
 
 class EnhancedMemoryProcessor:
     """Processor for enhanced memory with semantic search capabilities."""
@@ -384,7 +316,7 @@ class EnhancedMemoryProcessor:
                     
                 memory_vector = np.array(embedding)
                 
-                # Normalize vectors for cosine similarity
+                # Calculate cosine similarity
                 norm_query = np.linalg.norm(query_vector)
                 norm_memory = np.linalg.norm(memory_vector)
                 
@@ -441,14 +373,9 @@ class EnhancedMemoryProcessor:
                     concept_scores.append(float(similarity))
             
             if not concept_scores:
-                # Fall back to heuristic approach
-                # Longer text suggests importance (but not too long)
+                # Simple heuristic if concept comparison fails
                 length_score = min(len(text) / 500, 1.0) * 0.4
-                
-                # Check for question marks (questions are often less important as memories)
                 question_penalty = 0.2 if "?" in text else 0
-                
-                # Calculate final score
                 score = 0.5 + length_score - question_penalty
             else:
                 # Use max similarity to any important concept
@@ -507,8 +434,7 @@ class EnhancedMemoryProcessor:
                 
             except Exception as e:
                 logging.warning(f"Error summarizing text with model: {e}")
-                # Fall back to truncation if model fails
-            
+                
             # Fallback: truncate the text if summary model fails
             return " ".join(words[:max_length]) + "..."
         
@@ -530,9 +456,6 @@ class EnhancedMemoryProcessor:
             self.access_stats[memory_id] = [current_time, count + 1]
         else:
             self.access_stats[memory_id] = [current_time, 1]
-            
-        # Don't save on every access to avoid excessive writes
-        # We'll rely on periodic saves or application shutdown
     
     def _save_vector_store(self) -> None:
         """Save embeddings and metadata to disk."""

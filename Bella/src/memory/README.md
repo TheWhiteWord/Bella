@@ -5,54 +5,54 @@ This directory contains the components responsible for Bella's memory capabiliti
 ## Core Components
 
 1.  **`MemoryManager` (`memory_manager.py`)**:
-    *   **Purpose**: Handles the low-level storage and organization of memory data. It manages the physical files and directories where memories are stored.
+    *   **Purpose**: Handles the low-level storage and organization of memory data. It manages the physical files and directories where memories are stored (primarily as Markdown `.md` files).
     *   **Key Functions**:
-        *   `__init__(...)`: Initializes the memory directory structure (e.g., creating folders like `conversations`, `facts`, `preferences`). Loads existing memories into an in-memory index (`_memory_graph`, `_memory_index`) for faster access.
-        *   `create_memory(...)`: Creates or updates a memory entry as a Markdown file within the appropriate folder. Handles metadata (title, timestamps, tags) using YAML frontmatter. Parses content to update the internal `_memory_graph`.
-        *   `read_memory(...)`: Retrieves a specific memory file's content and metadata based on its title, path, or a `memory://` URL.
-        *   `search_memories(...)`: Performs a text-based search across all memory files, returning ranked and paginated results with snippets.
-        *   `update_memory(...)`: Modifies the content or title of an existing memory file.
-        *   `delete_memory(...)`: Removes a memory file and updates the internal index.
-        *   `_load_memories()`: Scans the memory directory on startup to populate the `_memory_graph` and `_memory_index`.
-        *   `_parse_memory_content(...)`: Extracts structured information (observations, relations, tags) from the Markdown content of a memory file.
+        *   `__init__(...)`: Initializes the memory directory structure.
+        *   `create_memory(...)`: Creates or updates a memory entry as a Markdown file with YAML frontmatter.
+        *   `read_memory(...)`: Retrieves a specific memory file's content and metadata.
+        *   `search_memories(...)`: Performs text-based search (keyword, regex) across memory files. *(Note: Semantic search is handled by `EnhancedMemoryAdapter`)*.
+        *   `update_memory(...)`: Modifies an existing memory file.
+        *   `delete_memory(...)`: Removes a memory file.
+        *   `_load_memories()`: Scans the memory directory (less critical with vector DB indexing).
+        *   `_parse_memory_content(...)`: Extracts structured information from Markdown content.
 
 2.  **`EnhancedMemory` (`enhanced_memory.py`)**:
-    *   **Purpose**: Implements semantic embedding-based memory search capabilities using embedding models from Ollama.
+    *   **Purpose**: Implements semantic embedding generation using models (e.g., from Ollama).
     *   **Key Classes**:
-        *   `EmbeddingModelManager`: Manages different embedding models (primary "nomic-embed-text" and fast "all-minilm").
-        *   `EnhancedMemoryProcessor`: Processes text with semantic embeddings for memory operations.
+        *   `EmbeddingModelManager`: Manages different embedding models.
+        *   `EnhancedMemoryProcessor`: Processes text to generate embeddings.
     *   **Key Functions**:
-        *   `generate_embedding(...)`: Generates embedding vectors for text using configurable models.
-        *   `find_relevant_memories(...)`: Performs semantic search across memories using vector similarity.
-        *   `score_memory_importance(...)`: Evaluates the importance of potential memories.
-        *   `extract_summary(...)`: Summarizes text for memory storage using Ollama's "summary" model.
+        *   `generate_embedding(...)`: Generates embedding vectors for text.
+        *   `score_memory_importance(...)`: Evaluates the semantic importance of potential memories.
+        *   `extract_summary(...)`: Summarizes text for memory storage.
 
 3.  **`EnhancedMemoryAdapter` (`enhanced_memory_adapter.py`)**:
-    *   **Purpose**: Connects the semantic embedding system with the file-based memory storage.
+    *   **Purpose**: Connects the semantic embedding system (`EnhancedMemory`) with memory storage and retrieval mechanisms. **This component is being updated to integrate ChromaDB for efficient semantic search.**
     *   **Key Functions**:
-        *   `search_memory(...)`: Searches for memories using semantic embeddings.
-        *   `should_store_memory(...)`: Determines if text should be stored based on semantic importance.
-        *   `process_conversation_turn(...)`: Analyzes conversation for memory operations.
-        *   `compare_memory_similarity(...)`: Compares semantic similarity between text snippets.
+        *   `__init__(...)`: **(To be updated)** Initialize ChromaDB client and collection (e.g., `chromadb.PersistentClient` pointing to a local path, get or create collection like "bella_memories").
+        *   `search_memory(...)`: **(To be updated)** Searches for memories by generating a query embedding and querying the ChromaDB collection (`collection.query`). Returns metadata (including file paths) from ChromaDB results.
+        *   `should_store_memory(...)`: Determines if text should be stored based on semantic importance score.
+        *   `process_conversation_turn(...)`: Analyzes conversation for memory operations (calls `search_memory` or triggers storage).
+        *   `compare_memory_similarity(...)`: Compares semantic similarity between text snippets using embeddings.
         *   `detect_memory_topics(...)`: Extracts topics from text using semantic understanding.
+        *   `_add_memory_to_vector_db(...)`: **(To be created)** A new method responsible for taking memory content, generating its embedding, and adding the embedding along with metadata (ID, title, tags, **file_path**) to the ChromaDB collection.
 
 4.  **`AutonomousMemory` (`autonomous_memory.py`)**:
-    *   **Purpose**: Implements the logic for *autonomous* memory integration during conversations. It decides *when* to retrieve relevant memories to enhance context and *when* to potentially store new information from the current interaction, without explicit user commands.
+    *   **Purpose**: Implements the logic for *autonomous* memory integration during conversations. Decides *when* to retrieve relevant memories and *when* to store new information.
     *   **Key Functions**:
-        *   `__init__(...)`: Sets up parameters controlling memory behavior, such as relevance thresholds (`memory_threshold`), frequency of checks (`memory_check_interval`), and recall limits (`max_recalls_per_session`).
-        *   `process_conversation_turn(...)`: The main entry point called by the `MemoryConversationAdapter`. It handles both pre-processing (retrieving context before LLM generation) and post-processing (evaluating the turn for potential storage after LLM generation).
-        *   `_is_memory_relevant_to_query(...)`: Uses semantic embedding similarity to determine if a memory is relevant to the current query.
-        *   `_should_augment_with_memory(...)`: Determines if the context should be augmented with memories.
-        *   `_calculate_memory_confidence(...)`: Uses semantic similarity to establish confidence in memory relevance.
+        *   `process_conversation_turn(...)`: Main entry point.
+            *   **Retrieval (Pre-processing)**: Calls `EnhancedMemoryAdapter.search_memory` (which will query ChromaDB) to find relevant memories based on the user query. Uses the returned file paths to potentially load full content from `.md` files if needed.
+            *   **Storage (Post-processing)**: After determining a conversation turn should be stored and saving it to an `.md` file via `MemoryIntegration`, **(To be updated)** it should call `EnhancedMemoryAdapter._add_memory_to_vector_db` to index the new memory in ChromaDB.
+        *   `_is_memory_relevant_to_query(...)`: Uses semantic similarity (via `EnhancedMemoryAdapter.compare_memory_similarity`).
+        *   `_should_augment_with_memory(...)`: Determines if context should be augmented.
+        *   `_calculate_memory_confidence(...)`: Uses semantic similarity for confidence.
 
 5.  **`MemoryConversationAdapter` (`memory_conversation_adapter.py`)**:
-    *   **Purpose**: Acts as a bridge between the main application loop (`main.py`) and the `AutonomousMemory` system. It provides hooks to integrate memory processing seamlessly into the request-response cycle.
-    *   **Key Functions**:
-        *   `pre_process_input(...)`: Called *before* sending the user input to the LLM to retrieve relevant memory context.
-        *   `post_process_response(...)`: Called *after* the LLM generates a response to potentially store information from the conversation.
+    *   **Purpose**: Bridge between `main.py` and `AutonomousMemory`.
+    *   **Key Functions**: `pre_process_input(...)`, `post_process_response(...)`.
 
 6.  **`ProjectManager` (`project_manager/project_manager.py`)**:
-    *   **Purpose**: Manages project-based memory storage, allowing for organization of ideas and information into distinct projects with standardized folder structures.
+    *   **Purpose**: Manages project-based memory storage in separate directories. *(Note: ChromaDB integration primarily targets the general/autonomous memory, but could be extended to projects)*.
     *   **Key Functions**:
         *   `__init__(...)`: Initializes the project directory structure and keeps track of the active project.
         *   `start_project(...)`: Creates a new project or activates an existing one with standard subfolders (notes, concepts, research, content).
@@ -65,7 +65,7 @@ This directory contains the components responsible for Bella's memory capabiliti
         *   `quit_project(...)`: Closes the active project.
 
 7.  **`MemoryFormatAdapter` (`project_manager/memory_format_adapter.py`)**:
-    *   **Purpose**: Standardizes memory storage formats between the autonomous memory system and the project-based system.
+    *   **Purpose**: Standardizes memory storage formats (YAML frontmatter in `.md` files).
     *   **Key Functions**:
         *   `convert_to_standard_format(...)`: Converts memory content to the standardized format with YAML frontmatter.
         *   `extract_standard_format_data(...)`: Extracts metadata and content from standardized format.
@@ -73,16 +73,13 @@ This directory contains the components responsible for Bella's memory capabiliti
         *   `update_standard_format(...)`: Updates content while maintaining the standardized format.
 
 8.  **`MemoryIntegration` (`project_manager/memory_integration.py`)**:
-    *   **Purpose**: Integrates the autonomous memory system with the project-based memory system.
-    *   **Key Functions**:
-        *   `save_standardized_memory(...)`: Saves memory in standardized format.
-        *   `read_standardized_memory(...)`: Reads memory in standardized format.
-        *   `convert_existing_memories(...)`: Converts existing memories to standardized format (placeholder for future use).
+    *   **Purpose**: Integrates autonomous and project-based memory storage (handles saving/reading `.md` files).
+    *   **Key Functions**: `save_standardized_memory(...)`, `read_standardized_memory(...)`.
 
 9.  **`register_memory_tools.py` & `project_manager/register_project_tools.py`**:
-    *   **Purpose**: Registers memory and project management tools with Bella's function calling system.
+    *   **Purpose**: Registers memory/project tools for LLM function calling.
     *   **Available Tools**:
-        *   `semantic_memory_search`: Searches across all memories using semantic understanding.
+        *   `semantic_memory_search`: **(To be updated)** This tool should now trigger `EnhancedMemoryAdapter.search_memory` which queries ChromaDB.
         *   `continue_conversation`: Continues a conversation thread based on recent exchanges.
         *   `start_project`: Creates or activates a project.
         *   `save_to`: Saves content to a project file.
@@ -93,6 +90,38 @@ This directory contains the components responsible for Bella's memory capabiliti
         *   `delete_entry`: Deletes entries from project files.
         *   `quit_project`: Closes the active project.
 
+## ChromaDB Integration Plan (In Progress)
+
+To enhance semantic search capabilities and scalability, we are integrating ChromaDB as a vector database. Markdown (`.md`) files will **still be used** as the primary, human-readable storage for memory content. ChromaDB will act as a fast, searchable **index** based on semantic meaning.
+
+**Completed Steps:**
+
+1.  **Dependency Added**: `chromadb` added to `requirements.txt`.
+
+**Remaining Steps:**
+
+1.  **Initialize ChromaDB Client**:
+    *   In `EnhancedMemoryAdapter.__init__`:
+        *   Import `chromadb`.
+        *   Create a persistent client: `client = chromadb.PersistentClient(path="/path/to/persistent/chroma_db")` (Define path in config).
+        *   Get or create a collection: `collection = client.get_or_create_collection(name="bella_memories", metadata={"hnsw:space": "cosine"})` (Using cosine distance is common for embeddings).
+        *   Store the `collection` object as an instance variable (e.g., `self.chroma_collection`).
+2.  **Implement Indexing Method**:
+    *   In `EnhancedMemoryAdapter`: Create `async def _add_memory_to_vector_db(self, memory_id: str, content: str, metadata: dict)`:
+        *   Generate embedding for `content` using `self.processor.generate_embedding`.
+        *   Ensure `metadata` includes essential fields like `title`, `tags`, and crucially, the `file_path` to the corresponding `.md` file.
+        *   Add to ChromaDB: `self.chroma_collection.add(ids=[memory_id], embeddings=[embedding_vector], metadatas=[metadata])`. Use the memory's unique ID (e.g., filename without extension, or a UUID) as the ChromaDB `id`.
+3.  **Update Storage Logic**:
+    *   In `AutonomousMemory.process_conversation_turn`: After successfully calling `self.memory_integration.save_standardized_memory` and getting the `memory_result` (which contains the `path`), extract a unique ID and the metadata, then call `await memory_manager.enhanced_adapter._add_memory_to_vector_db(memory_id, content, metadata)`.
+4.  **Update Search Logic**:
+    *   In `EnhancedMemoryAdapter.search_memory`:
+        *   Generate embedding for the `query_text`.
+        *   Query ChromaDB: `results = self.chroma_collection.query(query_embeddings=[query_embedding], n_results=top_n, include=['metadatas', 'distances'])`.
+        *   Process `results`: Extract `metadatas` and `distances` (similarity scores) to return structured search results, including the `file_path` from the metadata.
+    *   In `register_memory_tools.semantic_memory_search`: Ensure it calls the updated `EnhancedMemoryAdapter.search_memory` and formats the ChromaDB results appropriately.
+5.  **Configuration**: Add ChromaDB path and collection name to `config/models.yaml` or a new `config/memory.yaml`.
+6.  **Testing**: Update `tests/memory/test_enhanced_memory_adapter.py` and potentially `test_autonomous_memory.py` to mock ChromaDB client/collection interactions (`unittest.mock.patch`).
+
 ## Embedding Models
 
 The enhanced memory system supports multiple embedding models from Ollama:
@@ -101,10 +130,12 @@ The enhanced memory system supports multiple embedding models from Ollama:
 2. **Fast Model**: `all-minilm` (384-dimensional vectors) - Used for faster operations where speed is more important than maximum accuracy.
 3. **Summary Model**: `summary` - Used for generating concise memory summaries.
 
-These models provide a balance of accuracy and performance, with automatic fallback mechanisms:
-- Semantic similarity is used first for relevance detection
-- If embeddings fail, rule-based methods provide a robust fallback
-- Caching reduces redundant embedding calculations
+The system has a clean hierarchical approach to memory operations:
+1. Primary embedding-based similarity (nomic-embed-text) for highest accuracy
+2. Fast embedding-based similarity (all-minilm) for time-sensitive operations
+3. TF-IDF similarity as a robust fallback when embeddings are unavailable
+
+This streamlined approach provides optimal performance while maintaining reliability across different scenarios.
 
 ## Interaction Flow
 
@@ -174,4 +205,8 @@ This system allows for both autonomous memory capabilities and explicit project 
 
 The Bella Memory System relies on the following Python libraries:
 
-- **scikit-learn**: Used for machine learning operations, including clustering and similarity calculations.
+- **numpy**: For efficient vector operations in similarity calculations
+- **scikit-learn**: Used for TF-IDF vectorization and similarity calculations
+- **aiohttp**: For asynchronous API calls to Ollama embedding models
+- **pandas**: (Optional) For data processing in memory analytics
+- **chromadb**: For vector database indexing and semantic search

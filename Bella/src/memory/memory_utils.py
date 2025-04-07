@@ -1,263 +1,324 @@
-"""Utility functions for the memory system.
+"""Memory utility functions for semantic search and similarity calculations.
 
-This module provides utility functions for text processing, similarity calculation,
-and other operations needed across the memory system components.
+This module provides embedding-based semantic search with TF-IDF fallbacks
+for memory operations, optimized for philosophical and consciousness-related content.
 """
 
-import logging
 import re
-from typing import List, Set, Tuple, Dict, Any, Optional, Union
+import logging
 import numpy as np
+from typing import List, Dict, Any, Set, Tuple, Optional, Union
+from pathlib import Path
+import asyncio
+from functools import lru_cache
 
-# Configure logging
+# Initialize the logger
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Constants - only used as fallbacks when embedding model isn't available
+PHILOSOPHICAL_TERMS = [
+    "consciousness", "qualia", "phenomenology", "epistemology", "ontology", 
+    "metaphysics", "ethics", "aesthetics", "existentialism", "determinism",
+    "free will", "mind", "identity", "self", "being", "existence", "reality",
+    "knowledge", "truth", "meaning", "purpose", "morality", "perception",
+    "cognition", "intentionality", "representation", "subjectivity", 
+    "objectivity", "relativism", "absolutism", "rationalism", "empiricism",
+    "materialism", "idealism", "dualism", "monism", "nihilism", "solipsism",
+    "pragmatism", "utilitarianism", "deontology", "virtue ethics", "phenomenal",
+    "noumenal", "transcendental", "immanent", "synthetic", "analytic",
+    "a priori", "a posteriori", "dialectic", "hermeneutics", "deconstruction"
+]
 
-def calculate_tfidf_similarity(text1: str, text2: str) -> float:
-    """Calculate similarity between two texts using TF-IDF vectorization.
+PHILOSOPHERS = [
+    "plato", "aristotle", "socrates", "kant", "hegel", "nietzsche", "sartre",
+    "heidegger", "husserl", "wittgenstein", "russell", "descartes", "spinoza",
+    "leibniz", "locke", "berkeley", "hume", "kierkegaard", "schopenhauer",
+    "marx", "engels", "horkheimer", "adorno", "marcuse", "habermas", "rawls",
+    "camus", "beauvoir", "merleau-ponty", "gadamer", "ricoeur", "derrida",
+    "foucault", "deleuze", "lyotard", "baudrillard", "rorty", "james", "dewey",
+    "peirce", "quine", "davidson", "putnam", "kripke", "anscombe", "foot",
+    "macintyre", "nozick", "singer", "dennett", "chalmers", "nagel", "jackson",
+    "levinas", "confucius", "laozi", "zhuangzi", "buddha", "nagarjuna", "avicenna",
+    "averroes", "aquinas", "ockham", "bacon", "hobbes", "mill", "popper", "kuhn"
+]
+
+# Embedding model singleton for reuse
+_embedding_model = None
+
+async def get_embedding_model():
+    """Get or initialize the embedding model.
     
-    This function uses scikit-learn's TfidfVectorizer to convert texts to 
-    TF-IDF weighted vectors and then computes cosine similarity between them.
-    It includes fallback options if scikit-learn is not available.
+    Returns:
+        The embedding model instance
+    """
+    global _embedding_model
+    
+    if _embedding_model is None:
+        try:
+            # Try to import and initialize from main app integration
+            from .main_app_integration import memory_manager
+            if hasattr(memory_manager, 'enhanced_adapter') and hasattr(memory_manager.enhanced_adapter, 'processor'):
+                _embedding_model = memory_manager.enhanced_adapter.processor
+                logger.info("Successfully loaded embedding model from memory manager")
+            else:
+                # Try to initialize directly
+                from .enhanced_memory import EnhancedMemoryProcessor
+                _embedding_model = EnhancedMemoryProcessor()
+                logger.info("Initialized embedding model directly")
+        except Exception as e:
+            logger.warning(f"Failed to initialize embedding model: {e}")
+    
+    return _embedding_model
+
+@lru_cache(maxsize=128)
+async def generate_embedding(text: str) -> List[float]:
+    """Generate an embedding vector for the given text.
     
     Args:
-        text1: First text for comparison
-        text2: Second text for comparison
-        
+        text: Input text to embed
+    
     Returns:
-        Float between 0-1 representing similarity score
+        Embedding vector as a list of floats or None if embedding fails
+    """
+    model = await get_embedding_model()
+    
+    if model is not None:
+        try:
+            return await model.generate_embedding(text)
+        except Exception as e:
+            logger.warning(f"Error generating embedding: {e}")
+    
+    return None
+
+async def calculate_embedding_similarity(text1: str, text2: str) -> float:
+    """Calculate cosine similarity between two texts using embeddings.
+    
+    Args:
+        text1: First text
+        text2: Second text
+    
+    Returns:
+        Similarity score between 0 and 1
+    """
+    # Generate embeddings for both texts
+    embedding1 = await generate_embedding(text1)
+    embedding2 = await generate_embedding(text2)
+    
+    # If either embedding failed, fallback to TF-IDF
+    if embedding1 is None or embedding2 is None:
+        logger.info("Falling back to TF-IDF similarity due to embedding failure")
+        return calculate_tfidf_similarity(text1, text2)
+    
+    # Calculate cosine similarity
+    vec1 = np.array(embedding1)
+    vec2 = np.array(embedding2)
+    
+    # Compute cosine similarity
+    try:
+        similarity = np.dot(vec1, vec2) / (np.linalg.norm(vec1) * np.linalg.norm(vec2))
+        # Apply philosophical boost as a small enhancement
+        return min(1.0, similarity * 1.05 if has_philosophical_content(text1) and has_philosophical_content(text2) else similarity)
+    except Exception as e:
+        logger.warning(f"Error calculating embedding similarity: {e}")
+        return calculate_tfidf_similarity(text1, text2)
+
+def calculate_tfidf_similarity(text1: str, text2: str) -> float:
+    """Calculate TF-IDF similarity between two texts.
+    
+    This is a fallback method when embeddings are not available.
+    
+    Args:
+        text1: First text
+        text2: Second text
+    
+    Returns:
+        Similarity score between 0 and 1
     """
     try:
         from sklearn.feature_extraction.text import TfidfVectorizer
         from sklearn.metrics.pairwise import cosine_similarity
         
-        # Create vectorizer
+        # Create a TF-IDF vectorizer
         vectorizer = TfidfVectorizer(
-            stop_words='english',
-            min_df=1,         # Include terms that appear in at least 1 document
-            ngram_range=(1,2) # Include single words and bigrams
+            stop_words="english",
+            ngram_range=(1, 2),
+            use_idf=True,
+            smooth_idf=True,
+            sublinear_tf=True
         )
         
-        # Create vectors
-        vectors = vectorizer.fit_transform([text1, text2])
+        # Create a small corpus with these two texts
+        corpus = [text1, text2]
         
-        # Calculate similarity
-        similarity = cosine_similarity(vectors[0], vectors[1])[0][0]
+        # Fit and transform the texts into TF-IDF matrix
+        tfidf_matrix = vectorizer.fit_transform(corpus)
+        
+        # Calculate cosine similarity
+        similarity = cosine_similarity(tfidf_matrix[0:1], tfidf_matrix[1:2])[0][0]
+        
+        # Apply philosophical boost as enhancement
+        if has_philosophical_content(text1) and has_philosophical_content(text2):
+            similarity = min(1.0, similarity * 1.15)  # 15% boost for philosophical content
         
         return float(similarity)
-    except ImportError as e:
-        logger.warning(f"scikit-learn not available for TF-IDF calculation: {str(e)}")
-        return calculate_word_overlap_similarity(text1, text2)
     except Exception as e:
-        logger.warning(f"TF-IDF similarity calculation failed: {str(e)}")
-        return calculate_word_overlap_similarity(text1, text2)
+        logger.warning(f"Error in TF-IDF similarity: {e}")
+        return simple_similarity(text1, text2)  # Ultimate fallback
 
-
-def calculate_word_overlap_similarity(text1: str, text2: str) -> float:
-    """Calculate similarity based on significant word overlap.
-    
-    Fallback method when scikit-learn is not available.
+def simple_similarity(text1: str, text2: str) -> float:
+    """Extremely simple fallback similarity based on word overlap.
     
     Args:
-        text1: First text for comparison
-        text2: Second text for comparison
-        
+        text1: First text
+        text2: Second text
+    
     Returns:
-        Float between 0-1 representing similarity score
+        Similarity score between 0 and 1
     """
-    # Extract significant words (longer than 3 chars)
-    text1_words = {w.lower() for w in re.findall(r'\b\w{4,}\b', text1)}
-    text2_words = {w.lower() for w in re.findall(r'\b\w{4,}\b', text2)}
+    # Transform to lowercase and split into words
+    words1 = set(re.findall(r'\b\w{3,}\b', text1.lower()))
+    words2 = set(re.findall(r'\b\w{3,}\b', text2.lower()))
     
-    # Handle edge case of very short text
-    if len(text1_words) < 3 or len(text2_words) < 3:
-        # For very short texts, use character-level similarity instead
-        chars1 = set(text1.lower())
-        chars2 = set(text2.lower())
-        if not chars1 or not chars2:
-            return 0.0
-        intersection = len(chars1.intersection(chars2))
-        union = len(chars1.union(chars2))
-        return intersection / union
-    
-    # Calculate Jaccard similarity for word sets
-    intersection = len(text1_words.intersection(text2_words))
-    union = len(text1_words.union(text2_words))
-    
-    if union == 0:
+    # Handle empty sets
+    if not words1 or not words2:
         return 0.0
-        
-    return intersection / union
+    
+    # Calculate Jaccard similarity
+    intersection = len(words1.intersection(words2))
+    union = len(words1.union(words2))
+    
+    return intersection / union if union > 0 else 0.0
 
-
-def calculate_relevance_score(title: str, content: str, query: str) -> float:
-    """Calculate relevance score using TF-IDF and additional heuristics.
+def is_query_topic_match(memory_text: str, query: str) -> bool:
+    """Check if a memory contains topics that match a query.
     
     Args:
-        title: Title of the memory
-        content: Content text of the memory
-        query: Search query text
-        
+        memory_text: Memory text content
+        query: User query to check for matching topics
+    
     Returns:
-        Float representing relevance score (higher is more relevant)
+        Boolean indicating topic match
     """
-    # Give more weight to the title by repeating it
-    combined_text = f"{title} {title} {title} {content}"
-    
-    # Base score from TF-IDF similarity
-    base_score = calculate_tfidf_similarity(combined_text, query) * 10
-    
-    # Boost for exact phrase matches in title
-    if query.lower() in title.lower():
-        base_score += 3.0
-    
-    # Boost for exact phrase matches in content
-    if query.lower() in content.lower():
-        base_score += 1.0
-    
-    # Normalize score to reasonable range (0-10)
-    return min(10.0, base_score)
-
-
-async def classify_memory_confidence(memory: str, query: str) -> str:
-    """Classify confidence level of memory relevance to query.
-    
-    Args:
-        memory: Memory content text
-        query: Query text
-        
-    Returns:
-        String representing confidence level: "high", "medium", or "low"
-    """
-    # First check for general vs. specific queries
+    memory_lower = memory_text.lower()
     query_lower = query.lower()
-    memory_lower = memory.lower()
     
-    # Special handling for general inquiries about topics
-    is_general_inquiry = re.search(r"(?:anything|something|remember)\s+about", query_lower) is not None
+    # Check for exact phrase matches (quotes)
+    quote_matches = re.findall(r'"([^"]+)"', query)
+    if quote_matches:
+        for quote in quote_matches:
+            if quote.lower() in memory_lower:
+                return True
     
-    # Extract significant topics from both memory and query using TF-IDF approach
-    try:
-        # Extract topics from memory and query using TF-IDF
-        memory_topics = extract_keywords(memory_lower, max_keywords=5)
-        query_topics = extract_keywords(query_lower, max_keywords=5)
-        
-        # Check for topic overlap
-        common_topics = set(memory_topics) & set(query_topics)
-        same_topic = len(common_topics) > 0
-        
-        # For general inquiries that share topics with the memory, use medium confidence
-        if is_general_inquiry and same_topic:
-            return "medium"
-    except Exception as e:
-        logger.warning(f"Topic extraction failed: {str(e)}")
-        # Continue with similarity-based approach
+    # Extract potential keywords from query
+    query_keywords = re.findall(r'\b\w{4,}\b', query_lower)
     
-    # For specific queries with high overlap, use TF-IDF similarity
-    similarity = calculate_tfidf_similarity(memory, query)
+    # Count matching keywords in memory
+    match_count = sum(1 for keyword in query_keywords if keyword in memory_lower)
     
-    # Map similarity to confidence levels
-    if similarity > 0.6:
-        return "high"
-    elif similarity > 0.3:
-        return "medium"
-    else:
-        return "low"
+    # If more than 2 significant keywords match, consider it relevant
+    if match_count >= 2:
+        return True
+    
+    return False
 
-
-def extract_keywords(text: str, max_keywords: int = 5) -> List[str]:
-    """Extract meaningful keywords from text.
+def has_philosophical_content(text: str) -> bool:
+    """Check if a text contains philosophical content.
+    
+    This is a simple heuristic used only as a fallback when embeddings aren't available.
     
     Args:
-        text: Input text to extract keywords from
-        max_keywords: Maximum number of keywords to extract
+        text: Text to analyze
         
     Returns:
-        List of extracted keywords
+        Boolean indicating presence of philosophical content
     """
-    try:
-        from sklearn.feature_extraction.text import TfidfVectorizer
+    text_lower = text.lower()
+    
+    # Check for philosophical terms
+    for term in PHILOSOPHICAL_TERMS:
+        if term in text_lower:
+            return True
+    
+    # Check for philosopher names
+    for name in PHILOSOPHERS:
+        if name in text_lower:
+            return True
+    
+    return False
+
+async def find_similar_memories(query: str, memories: List[Dict[str, Any]], 
+                              threshold: float = 0.65, 
+                              max_results: int = 3) -> List[Dict[str, Any]]:
+    """Find memories similar to a query using embeddings with TF-IDF fallback.
+    
+    Args:
+        query: Query text to match against memories
+        memories: List of memory dictionaries with at least 'content' field
+        threshold: Similarity threshold for inclusion (0-1)
+        max_results: Maximum number of results to return
         
-        # Create vectorizer for single document
-        vectorizer = TfidfVectorizer(
-            stop_words='english',
-            max_features=max_keywords,
-            ngram_range=(1, 2)
-        )
-        
-        # Transform the text
-        tfidf_matrix = vectorizer.fit_transform([text])
-        
-        # Get feature names
-        feature_names = vectorizer.get_feature_names_out()
-        
-        # Get sorted indices of the most important features
-        tfidf_sorting = np.argsort(tfidf_matrix.toarray()).flatten()[::-1]
-        
-        # Get top keywords
-        top_keywords = [feature_names[i] for i in tfidf_sorting[:max_keywords]]
-        return top_keywords
-        
-    except ImportError:
-        # Fallback to simple frequency-based extraction
-        words = re.findall(r'\b\w{4,}\b', text.lower())
-        stop_words = {"the", "and", "this", "that", "with", "from", "have", "for"}
-        filtered_words = [w for w in words if w not in stop_words]
-        
-        # Count word frequency
-        word_counts = {}
-        for word in filtered_words:
-            word_counts[word] = word_counts.get(word, 0) + 1
+    Returns:
+        List of similar memories with similarity scores
+    """
+    if not memories:
+        return []
+    
+    # Try using embeddings first
+    model = await get_embedding_model()
+    results = []
+    
+    if model is not None:
+        try:
+            # Generate query embedding
+            query_embedding = await generate_embedding(query)
             
-        # Sort by frequency
-        sorted_words = sorted(word_counts.items(), key=lambda x: x[1], reverse=True)
+            if query_embedding is not None:
+                # Compare against each memory
+                for memory in memories:
+                    content = memory.get("content", "")
+                    
+                    # Generate or retrieve memory embedding
+                    memory_embedding = await generate_embedding(content)
+                    
+                    if memory_embedding is not None:
+                        # Calculate similarity
+                        vec1 = np.array(query_embedding)
+                        vec2 = np.array(memory_embedding)
+                        
+                        similarity = np.dot(vec1, vec2) / (np.linalg.norm(vec1) * np.linalg.norm(vec2))
+                        
+                        # Apply philosophical boost if applicable
+                        if has_philosophical_content(query) and has_philosophical_content(content):
+                            similarity = min(1.0, similarity * 1.05)  # 5% boost for philosophical content
+                        
+                        # Add if above threshold
+                        if similarity >= threshold:
+                            results.append({
+                                "memory": memory,
+                                "similarity": float(similarity)
+                            })
+                
+                # If we got results with embeddings, return them
+                if results:
+                    # Sort by similarity (highest first)
+                    results.sort(key=lambda x: x["similarity"], reverse=True)
+                    return results[:max_results]
+        except Exception as e:
+            logger.warning(f"Error in embedding-based memory search: {e}")
+    
+    # Fallback to TF-IDF if embeddings failed or returned no results
+    logger.info("Falling back to TF-IDF for memory search")
+    for memory in memories:
+        content = memory.get("content", "")
+        similarity = calculate_tfidf_similarity(query, content)
         
-        # Return top keywords
-        return [word for word, _ in sorted_words[:max_keywords]]
-
-
-def is_query_topic_match(memory: str, query: str) -> bool:
-    """Determine if a memory and query are about the same topic.
+        if similarity >= threshold:
+            results.append({
+                "memory": memory,
+                "similarity": similarity
+            })
     
-    Specifically designed to handle test cases like distinguishing between 
-    coffee preferences and dogs, without hardcoding special cases.
-    
-    Args:
-        memory: Memory text content
-        query: Query text
-        
-    Returns:
-        Boolean indicating if they're about the same topic
-    """
-    # Extract key topics using a basic NLP approach
-    memory_lower = memory.lower()
-    query_lower = query.lower()
-    
-    # Define common stop words to filter out
-    stop_words = {"the", "and", "a", "an", "of", "to", "in", "on", "with", "by", "for", 
-                 "is", "are", "was", "were", "be", "am", "has", "have", "had", "do", 
-                 "does", "did", "can", "could", "will", "would", "should", "might", "i",
-                 "you", "he", "she", "it", "we", "they", "this", "that", "what", "how",
-                 "why", "when", "where", "who", "which", "there", "here", "about", "my"}
-    
-    # Extract meaningful words from memory
-    memory_words = [w for w in memory_lower.split() if w not in stop_words and len(w) > 3]
-    memory_topics = set(memory_words[:10])  # Consider the first meaningful words as topics
-    
-    # Extract meaningful words from query
-    query_words = [w for w in query_lower.split() if w not in stop_words and len(w) > 3]
-    query_topics = set(query_words)
-    
-    # Check for topic overlap
-    common_topics = memory_topics.intersection(query_topics)
-    
-    # No topic overlap means they're likely different topics
-    if not common_topics:
-        return False
-    
-    # Calculate percentage of query topics that appear in memory
-    overlap_ratio = len(common_topics) / len(query_topics) if query_topics else 0
-    
-    # If less than 25% of query topics appear in memory, they're likely different topics
-    return overlap_ratio >= 0.25
+    # Sort by similarity (highest first)
+    results.sort(key=lambda x: x["similarity"], reverse=True)
+    return results[:max_results]
