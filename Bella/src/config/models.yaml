@@ -33,3 +33,11 @@ models:
       min_p: 0.05
 
 default_model: "Lexi"  # Default model to use
+
+# --- Memory System Configuration ---
+memory:
+  chromadb:
+    path: "memories/chroma_db"  # Path to store ChromaDB persistent data
+    collection_name: "bella_memories"
+    # Using cosine distance for embeddings is standard practice
+    metadata: {"hnsw:space": "cosine"}

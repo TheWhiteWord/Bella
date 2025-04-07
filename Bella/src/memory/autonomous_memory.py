@@ -8,7 +8,8 @@ import re
 import logging
 from typing import Dict, List, Any, Optional, Tuple
 from datetime import datetime
-import asyncio  # Added for potential async operations in adapter
+import asyncio
+import os  # Needed for path manipulation
 
 import numpy as np
 
@@ -72,7 +73,7 @@ class AutonomousMemory:
                             top_result = results[0]
                             memory_text = top_result.get('preview', '')
                             title = top_result.get('title', '')
-                            similarity_score = top_result.get('score', 0.0) # Assuming score is returned
+                            similarity_score = top_result.get('score', 0.0)  # Assuming score is returned
 
                             # Skip if this is the same as last recalled memory
                             if memory_text != self.last_recalled_memory:
@@ -86,7 +87,7 @@ class AutonomousMemory:
                                     if is_relevant:
                                         confidence_level = await self._calculate_memory_confidence(memory_text, user_input)
                                     else:
-                                        confidence_level = "low" # Explicitly low if relevance check fails
+                                        confidence_level = "low"  # Explicitly low if relevance check fails
 
                                 if is_relevant and confidence_level != "low":
                                     self.last_recalled_memory = memory_text
@@ -107,11 +108,11 @@ class AutonomousMemory:
                                             "memory_response": f"{prefix}: {memory_text}",
                                             "memory_source": title,
                                             "confidence": confidence_level,
-                                            "score": similarity_score # Include score if available
+                                            "score": similarity_score  # Include score if available
                                         }
                                         logging.info(f"Augmenting context with memory: {title} (Confidence: {confidence_level})")
                                 else:
-                                     logging.info(f"Memory found ('{title}') but deemed not relevant enough (Score: {similarity_score}, Relevant: {is_relevant}).")
+                                    logging.info(f"Memory found ('{title}') but deemed not relevant enough (Score: {similarity_score}, Relevant: {is_relevant}).")
 
                             else:
                                 logging.info("Skipping memory augmentation: Same as last recalled memory.")
@@ -124,13 +125,13 @@ class AutonomousMemory:
 
             else:
                 # POST-PROCESSING: Check if this conversation should be stored
-                # Use the refactored _should_store_conversation
                 should_store, store_metadata = await self._should_store_conversation(user_input, response_text)
 
                 if should_store:
                     logging.info("Determined conversation should be stored in memory.")
                     # Generate title using semantic topics
                     title = await self._generate_title_from_content(user_input, response_text)
+                    memory_type = "conversations"  # Define memory type
 
                     # Create content
                     content = f"User: {user_input}\n\nAssistant: {response_text}"
@@ -138,37 +139,70 @@ class AutonomousMemory:
                     # Use tags from should_store_conversation metadata
                     tags = store_metadata.get("tags", ["conversation", "auto-saved"])
 
-                    # Store in standardized format via memory_integration
+                    # Store in standardized format via memory_integration (saves the .md file)
                     memory_result = await self.memory_integration.save_standardized_memory(
-                        "conversations",
+                        memory_type,
                         content,
                         title,
                         tags=tags
                     )
 
                     if memory_result and memory_result.get('success'):
-                        logging.info(f"Successfully stored conversation memory: {memory_result.get('path')}")
+                        saved_path = memory_result.get('path')
+                        logging.info(f"Successfully stored conversation memory file: {saved_path}")
                         memory_context["memory_stored"] = True
-                        memory_context["memory_path"] = memory_result.get('path')
+                        memory_context["memory_path"] = saved_path
+
+                        # --- Add to ChromaDB ---
+                        if saved_path:
+                            # Create a unique ID for ChromaDB (e.g., 'conversations/title-slug')
+                            # Ensure title is filesystem-safe for ID generation
+                            safe_title = re.sub(r'[^\w\-]+', '-', title.lower())
+                            memory_id = f"{memory_type}/{safe_title}"
+
+                            # Prepare metadata for ChromaDB
+                            chroma_metadata = {
+                                "file_path": saved_path,
+                                "title": title,
+                                "tags": tags,  # Pass the list directly, _add_memory handles conversion
+                                "created_at": datetime.now().isoformat(),
+                                "memory_type": memory_type
+                                # Add other relevant metadata from store_metadata if needed
+                            }
+                            if "importance_score" in store_metadata:
+                                chroma_metadata["importance_score"] = store_metadata["importance_score"]
+
+                            try:
+                                # Call the adapter method to add to vector DB
+                                await memory_manager.enhanced_adapter._add_memory_to_vector_db(
+                                    memory_id=memory_id,
+                                    content=content,
+                                    metadata=chroma_metadata
+                                )
+                                logging.info(f"Successfully indexed memory '{memory_id}' in ChromaDB.")
+                            except Exception as index_e:
+                                logging.error(f"Failed to index memory '{memory_id}' in ChromaDB: {index_e}")
+                                # Decide if this should be a critical failure
+                        else:
+                            logging.warning("Memory file saved successfully, but path was not returned. Cannot index in ChromaDB.")
 
                         # Optionally modify response only if deemed important by semantic check
                         if store_metadata.get("is_important", False):
-                             if not response_text.endswith((".", "?", "!")):
-                                 response_text += "."
-                             modified_response = f"{response_text} I've noted this."
-                             logging.info("Acknowledged storing important memory in response.")
+                            if not response_text.endswith((".", "?", "!")):
+                                response_text += "."
+                            modified_response = f"{response_text} I've noted this."
+                            logging.info("Acknowledged storing important memory in response.")
                         else:
-                             modified_response = response_text # Keep original response otherwise
+                            modified_response = response_text  # Keep original response otherwise
                     else:
-                        logging.error(f"Failed to store conversation memory: {memory_result}")
+                        logging.error(f"Failed to store conversation memory file: {memory_result}")
                 else:
                     logging.debug("Conversation turn did not meet criteria for memory storage.")
-
 
             return modified_response, memory_context
 
         except Exception as e:
-            logging.exception(f"Error in process_conversation_turn: {e}") # Use logging.exception for stack trace
+            logging.exception(f"Error in process_conversation_turn: {e}")  # Use logging.exception for stack trace
             # Return original response on error, ensure memory_context indicates failure
             return response_text if response_text else "", {"error": str(e), "has_memory_context": False}
 
@@ -191,11 +225,11 @@ class AutonomousMemory:
                 logging.info(f"Semantic check indicates conversation should be stored (Score: {importance_score:.2f}).")
                 metadata["importance_score"] = importance_score
                 # Add tags based on importance or detected topics
-                if importance_score > 0.85: # Example threshold for 'important' tag
+                if importance_score > 0.85:  # Example threshold for 'important' tag
                     metadata["tags"].append("important")
                     metadata["is_important"] = True
                 elif importance_score > 0.7:
-                     metadata["tags"].append("detailed")
+                    metadata["tags"].append("detailed")
 
                 # Extract semantic topics and add as tags
                 topics = await self._extract_potential_topics(combined_text)
@@ -213,13 +247,13 @@ class AutonomousMemory:
             logging.error(f"Error during semantic importance check in _should_store_conversation: {e}")
             # Fallback: Store if explicitly told to remember or if it's long
             if "remember this" in combined_text.lower() or "make a note" in combined_text.lower():
-                 metadata["tags"].append("important")
-                 metadata["is_important"] = True
-                 return True, metadata
+                metadata["tags"].append("important")
+                metadata["is_important"] = True
+                return True, metadata
             if len(combined_text.split()) > 100:
-                 metadata["tags"].append("detailed")
-                 return True, metadata
-            return False, {} # Default to false on error
+                metadata["tags"].append("detailed")
+                return True, metadata
+            return False, {}  # Default to false on error
 
     async def _generate_title_from_content(self, user_input: str, assistant_response: str) -> str:
         """Generate a title using semantic topic extraction."""
@@ -234,17 +268,20 @@ class AutonomousMemory:
                 if len(topics) > 1:
                     title += f" and {topics[1]}"
                 logging.debug(f"Generated title from semantic topics: '{title}'")
+                # Ensure title is reasonably short for use in IDs/filenames
+                if len(title) > 60:
+                    title = title[:57] + "..."
                 return title
 
             # Fallback: Check for questions (less reliant on specific keywords)
             user_input_stripped = user_input.strip()
             if user_input_stripped.endswith("?") and len(user_input_stripped.split()) > 3:
-                 # Use the question itself, truncated
-                 words = user_input_stripped.split()
-                 limit = min(10, len(words))
-                 title = ' '.join(words[:limit]).replace("?", "") + "?"
-                 logging.debug(f"Generated title from question: '{title}'")
-                 return title
+                # Use the question itself, truncated
+                words = user_input_stripped.split()
+                limit = min(10, len(words))
+                title = ' '.join(words[:limit]).replace("?", "") + "?"
+                logging.debug(f"Generated title from question: '{title}'")
+                return title
 
             # Fallback: Use beginning of user input
             user_words = user_input_stripped.split()
@@ -274,7 +311,7 @@ class AutonomousMemory:
             return topics
         except Exception as e:
             logging.error(f"Error extracting semantic topics: {e}")
-            return [] # Return empty list on error
+            return []  # Return empty list on error
 
     async def _is_memory_relevant_to_query(self, memory: str, query: str) -> bool:
         """Check memory relevance using semantic similarity."""
@@ -288,7 +325,7 @@ class AutonomousMemory:
             # Fallback to basic keyword check (less reliable)
             query_words = set(query.lower().split())
             memory_words = set(memory.lower().split())
-            return len(query_words.intersection(memory_words)) > 2 # Simple overlap check
+            return len(query_words.intersection(memory_words)) > 2  # Simple overlap check
 
     async def _should_augment_with_memory(self, query: str) -> bool:
         """Determine if context should be augmented based on query intent and timing."""
@@ -322,8 +359,8 @@ class AutonomousMemory:
             r"\bbased\s+on\s+what\s+I\s+said\b"
         ]
         if any(re.search(pattern, query_lower) for pattern in personal_query_patterns):
-             logging.debug("Query appears to be about user's past statements or opinions.")
-             return True
+            logging.debug("Query appears to be about user's past statements or opinions.")
+            return True
 
         # 3. General questions that *might* benefit from memory (lower confidence - rely on semantic search relevance)
         # Check for question words combined with terms that often relate to past context
@@ -337,8 +374,8 @@ class AutonomousMemory:
         # If it's a question containing context terms, it's worth *trying* a semantic search.
         # The relevance check later (`_is_memory_relevant_to_query`) will filter out irrelevant results.
         if has_question and has_context_term:
-             logging.debug("Query is a question with context terms, proceeding to semantic search check.")
-             return True
+            logging.debug("Query is a question with context terms, proceeding to semantic search check.")
+            return True
 
         # --- Avoid Augmenting General Knowledge Queries ---
         # Filter out simple "what is X" or "tell me about Y" if they don't contain personal references
@@ -359,7 +396,6 @@ class AutonomousMemory:
         logging.debug("Query did not meet criteria for memory augmentation.")
         return False
 
-
     async def _calculate_memory_confidence(self, memory: str, query: str) -> str:
         """Calculate confidence level using semantic similarity."""
         try:
@@ -369,20 +405,19 @@ class AutonomousMemory:
         except Exception as e:
             logging.error(f"Error calculating semantic similarity for confidence: {e}")
             # Fallback (optional): could use a simpler method or default to low
-            return "low" # Default to low confidence on error
+            return "low"  # Default to low confidence on error
 
     def _map_similarity_to_confidence(self, similarity: float) -> str:
         """Maps a raw similarity score (0-1) to confidence levels."""
         if similarity > 0.8:
             return "high"
-        elif similarity >= self.memory_threshold: # Use the instance threshold
+        elif similarity >= self.memory_threshold:  # Use the instance threshold
             return "medium"
         else:
             return "low"
 
-    # Optional: Add a method to reset recall count if needed, e.g., at the start of a new session
     def reset_session_recalls(self):
         """Resets the recall counter for a new session."""
         logging.info("Resetting memory recall count for new session.")
         self.recall_count = 0
-        self.last_recalled_memory = None # Also clear the last recalled memory
+        self.last_recalled_memory = None  # Also clear the last recalled memory

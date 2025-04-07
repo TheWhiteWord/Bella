@@ -1,6 +1,6 @@
 # Bella Memory System
 
-This directory contains the components responsible for Bella's memory capabilities, allowing the assistant to store, retrieve, and utilize information from past interactions and structured knowledge.
+This directory contains the components responsible for Bella's memory capabilities, allowing the assistant to store, retrieve, and utilize information from past interactions and structured knowledge using semantic understanding powered by embeddings and ChromaDB.
 
 ## Core Components
 
@@ -27,24 +27,24 @@ This directory contains the components responsible for Bella's memory capabiliti
         *   `extract_summary(...)`: Summarizes text for memory storage.
 
 3.  **`EnhancedMemoryAdapter` (`enhanced_memory_adapter.py`)**:
-    *   **Purpose**: Connects the semantic embedding system (`EnhancedMemory`) with memory storage and retrieval mechanisms. **This component is being updated to integrate ChromaDB for efficient semantic search.**
+    *   **Purpose**: Connects the semantic embedding system (`EnhancedMemory`) with memory storage and retrieval mechanisms. **Uses ChromaDB for efficient semantic search and indexing.**
     *   **Key Functions**:
-        *   `__init__(...)`: **(To be updated)** Initialize ChromaDB client and collection (e.g., `chromadb.PersistentClient` pointing to a local path, get or create collection like "bella_memories").
-        *   `search_memory(...)`: **(To be updated)** Searches for memories by generating a query embedding and querying the ChromaDB collection (`collection.query`). Returns metadata (including file paths) from ChromaDB results.
+        *   `__init__(...)`: Initializes ChromaDB client and collection (e.g., `chromadb.PersistentClient` pointing to a local path, gets or creates collection like "bella_memories").
+        *   `search_memory(...)`: **Searches for memories by generating a query embedding and querying the ChromaDB collection (`collection.query`). Returns metadata (including file paths) and similarity scores from ChromaDB results.**
         *   `should_store_memory(...)`: Determines if text should be stored based on semantic importance score.
         *   `process_conversation_turn(...)`: Analyzes conversation for memory operations (calls `search_memory` or triggers storage).
         *   `compare_memory_similarity(...)`: Compares semantic similarity between text snippets using embeddings.
         *   `detect_memory_topics(...)`: Extracts topics from text using semantic understanding.
-        *   `_add_memory_to_vector_db(...)`: **(To be created)** A new method responsible for taking memory content, generating its embedding, and adding the embedding along with metadata (ID, title, tags, **file_path**) to the ChromaDB collection.
+        *   `_add_memory_to_vector_db(...)`: Takes memory content, generates its embedding, and adds the embedding along with metadata (ID, title, tags, **file_path**) to the ChromaDB collection.
 
 4.  **`AutonomousMemory` (`autonomous_memory.py`)**:
     *   **Purpose**: Implements the logic for *autonomous* memory integration during conversations. Decides *when* to retrieve relevant memories and *when* to store new information.
     *   **Key Functions**:
         *   `process_conversation_turn(...)`: Main entry point.
-            *   **Retrieval (Pre-processing)**: Calls `EnhancedMemoryAdapter.search_memory` (which will query ChromaDB) to find relevant memories based on the user query. Uses the returned file paths to potentially load full content from `.md` files if needed.
-            *   **Storage (Post-processing)**: After determining a conversation turn should be stored and saving it to an `.md` file via `MemoryIntegration`, **(To be updated)** it should call `EnhancedMemoryAdapter._add_memory_to_vector_db` to index the new memory in ChromaDB.
+            *   **Retrieval (Pre-processing)**: Calls the `semantic_memory_search` tool (which uses `EnhancedMemoryAdapter.search_memory` querying ChromaDB) to find relevant memories based on the user query. Uses the returned file paths to potentially load full content from `.md` files if needed.
+            *   **Storage (Post-processing)**: After determining a conversation turn should be stored and saving it to an `.md` file via `MemoryIntegration`, **it calls `EnhancedMemoryAdapter._add_memory_to_vector_db` to index the new memory in ChromaDB.**
         *   `_is_memory_relevant_to_query(...)`: Uses semantic similarity (via `EnhancedMemoryAdapter.compare_memory_similarity`).
-        *   `_should_augment_with_memory(...)`: Determines if context should be augmented.
+        *   `_should_augment_with_memory(...)`: Determines if context should be augmented based on query intent and timing.
         *   `_calculate_memory_confidence(...)`: Uses semantic similarity for confidence.
 
 5.  **`MemoryConversationAdapter` (`memory_conversation_adapter.py`)**:
@@ -79,7 +79,7 @@ This directory contains the components responsible for Bella's memory capabiliti
 9.  **`register_memory_tools.py` & `project_manager/register_project_tools.py`**:
     *   **Purpose**: Registers memory/project tools for LLM function calling.
     *   **Available Tools**:
-        *   `semantic_memory_search`: **(To be updated)** This tool should now trigger `EnhancedMemoryAdapter.search_memory` which queries ChromaDB.
+        *   `semantic_memory_search`: **Performs semantic search by triggering `EnhancedMemoryAdapter.search_memory`, which queries the ChromaDB vector database.**
         *   `continue_conversation`: Continues a conversation thread based on recent exchanges.
         *   `start_project`: Creates or activates a project.
         *   `save_to`: Saves content to a project file.
@@ -90,37 +90,25 @@ This directory contains the components responsible for Bella's memory capabiliti
         *   `delete_entry`: Deletes entries from project files.
         *   `quit_project`: Closes the active project.
 
-## ChromaDB Integration Plan (In Progress)
+## ChromaDB Integration (Completed)
 
-To enhance semantic search capabilities and scalability, we are integrating ChromaDB as a vector database. Markdown (`.md`) files will **still be used** as the primary, human-readable storage for memory content. ChromaDB will act as a fast, searchable **index** based on semantic meaning.
+To enhance semantic search capabilities and scalability, ChromaDB has been integrated as a vector database. Markdown (`.md`) files **are still used** as the primary, human-readable storage for memory content. ChromaDB acts as a fast, searchable **index** based on semantic meaning.
 
-**Completed Steps:**
+**Implementation Details:**
 
 1.  **Dependency Added**: `chromadb` added to `requirements.txt`.
-
-**Remaining Steps:**
-
-1.  **Initialize ChromaDB Client**:
-    *   In `EnhancedMemoryAdapter.__init__`:
-        *   Import `chromadb`.
-        *   Create a persistent client: `client = chromadb.PersistentClient(path="/path/to/persistent/chroma_db")` (Define path in config).
-        *   Get or create a collection: `collection = client.get_or_create_collection(name="bella_memories", metadata={"hnsw:space": "cosine"})` (Using cosine distance is common for embeddings).
-        *   Store the `collection` object as an instance variable (e.g., `self.chroma_collection`).
-2.  **Implement Indexing Method**:
-    *   In `EnhancedMemoryAdapter`: Create `async def _add_memory_to_vector_db(self, memory_id: str, content: str, metadata: dict)`:
-        *   Generate embedding for `content` using `self.processor.generate_embedding`.
-        *   Ensure `metadata` includes essential fields like `title`, `tags`, and crucially, the `file_path` to the corresponding `.md` file.
-        *   Add to ChromaDB: `self.chroma_collection.add(ids=[memory_id], embeddings=[embedding_vector], metadatas=[metadata])`. Use the memory's unique ID (e.g., filename without extension, or a UUID) as the ChromaDB `id`.
-3.  **Update Storage Logic**:
-    *   In `AutonomousMemory.process_conversation_turn`: After successfully calling `self.memory_integration.save_standardized_memory` and getting the `memory_result` (which contains the `path`), extract a unique ID and the metadata, then call `await memory_manager.enhanced_adapter._add_memory_to_vector_db(memory_id, content, metadata)`.
-4.  **Update Search Logic**:
-    *   In `EnhancedMemoryAdapter.search_memory`:
-        *   Generate embedding for the `query_text`.
-        *   Query ChromaDB: `results = self.chroma_collection.query(query_embeddings=[query_embedding], n_results=top_n, include=['metadatas', 'distances'])`.
-        *   Process `results`: Extract `metadatas` and `distances` (similarity scores) to return structured search results, including the `file_path` from the metadata.
-    *   In `register_memory_tools.semantic_memory_search`: Ensure it calls the updated `EnhancedMemoryAdapter.search_memory` and formats the ChromaDB results appropriately.
-5.  **Configuration**: Add ChromaDB path and collection name to `config/models.yaml` or a new `config/memory.yaml`.
-6.  **Testing**: Update `tests/memory/test_enhanced_memory_adapter.py` and potentially `test_autonomous_memory.py` to mock ChromaDB client/collection interactions (`unittest.mock.patch`).
+2.  **ChromaDB Client Initialized**:
+    *   `EnhancedMemoryAdapter.__init__` initializes a `chromadb.PersistentClient` using the path specified in `config/models.yaml` (`memory.chromadb.path`).
+    *   It gets or creates a collection named `bella_memories` (or as configured) using cosine distance.
+3.  **Indexing Method Implemented**:
+    *   `EnhancedMemoryAdapter._add_memory_to_vector_db` generates an embedding for memory content and adds the embedding along with metadata (including `file_path`) to the ChromaDB collection.
+4.  **Storage Logic Updated**:
+    *   `AutonomousMemory.process_conversation_turn` now calls `_add_memory_to_vector_db` after successfully saving the `.md` file, ensuring new memories are indexed.
+5.  **Search Logic Updated**:
+    *   `EnhancedMemoryAdapter.search_memory` generates a query embedding and queries the ChromaDB collection, returning processed results including metadata and similarity scores.
+    *   `register_memory_tools.semantic_memory_search` uses the updated adapter method.
+6.  **Configuration Added**: ChromaDB path and collection name are configured in `config/models.yaml` under the `memory.chromadb` section.
+7.  **Testing Updated**: Tests in `tests/memory/test_autonomous_memory.py` and `tests/memory/test_enhanced_memory_integration.py` have been updated to mock ChromaDB interactions.
 
 ## Embedding Models
 
