@@ -173,6 +173,11 @@ class EnhancedMemoryProcessor:
             # Calculate cosine similarity with all stored embeddings
             results = []
             for memory_id, embedding in self.embeddings.items():
+                # Skip if dimensions don't match (prevents shape mismatch error)
+                if len(query_vector) != len(embedding):
+                    logging.warning(f"Dimension mismatch: query={len(query_vector)}, memory={len(embedding)} for {memory_id}")
+                    continue
+                    
                 memory_vector = np.array(embedding)
                 
                 # Normalize vectors for cosine similarity
@@ -286,15 +291,28 @@ class EnhancedMemoryProcessor:
         """Load embeddings and metadata from disk."""
         try:
             if os.path.exists(self.vector_path):
-                with open(self.vector_path, 'r') as f:
-                    data = json.load(f)
+                # Check if file is empty
+                if os.path.getsize(self.vector_path) == 0:
+                    logging.warning(f"Vector store file is empty: {self.vector_path}")
+                    return
+
+                try:
+                    with open(self.vector_path, 'r') as f:
+                        data = json.load(f)
+                        
+                    self.embeddings = {k: v for k, v in data.get("embeddings", {}).items()}
+                    self.metadata = data.get("metadata", {})
                     
-                self.embeddings = {k: v for k, v in data.get("embeddings", {}).items()}
-                self.metadata = data.get("metadata", {})
-                
-                logging.info(f"Loaded {len(self.embeddings)} embeddings from disk")
+                    logging.info(f"Loaded {len(self.embeddings)} embeddings from disk")
+                except json.JSONDecodeError:
+                    # Handle corrupted file by creating a fresh one
+                    logging.warning(f"Vector store file corrupted, creating fresh: {self.vector_path}")
+                    self._save_vector_store()
         except Exception as e:
             logging.error(f"Error loading vector store: {e}")
+            # Initialize with empty data to prevent further errors
+            self.embeddings = {}
+            self.metadata = {}
     
     def _save_access_stats(self) -> None:
         """Save memory access statistics to disk."""

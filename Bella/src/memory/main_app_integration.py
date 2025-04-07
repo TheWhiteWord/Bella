@@ -104,26 +104,42 @@ class BellaMemoryManager:
             logging.error(f"Error evaluating memory importance: {e}")
             return 0.5  # Default to medium importance
     
-    async def should_store_memory(self, text: str) -> bool:
+    async def should_store_memory(self, text: str) -> Tuple[bool, float]:
         """Determine if a text should be stored as a memory.
         
         Args:
             text: Text to evaluate
             
         Returns:
-            Boolean indicating if text should be stored
+            Tuple of (boolean indicating if text should be stored, importance score)
         """
         # Ensure initialized
         if not self._initialized:
             await self.initialize()
             
         try:
-            should_save, _ = await self.enhanced_adapter.should_save_memory(text)
-            return should_save
+            # Get result from adapter, properly handling return values
+            result = await self.enhanced_adapter.should_save_memory(text)
+            
+            # Check if result is a tuple (properly formatted) or just a boolean
+            if isinstance(result, tuple) and len(result) == 2:
+                return result
+            elif isinstance(result, bool):
+                # If it's just a boolean, add a default importance score
+                importance = 0.75 if result else 0.3
+                return result, importance
+            else:
+                # Fallback for unexpected return types
+                logging.warning(f"Unexpected return type from should_save_memory: {type(result)}")
+                should_save = bool(result)
+                return should_save, 0.5
+                
         except Exception as e:
             logging.error(f"Error determining if memory should be stored: {e}")
             # Fall back to a simple heuristic
-            return len(text.split()) > 10  # Simple fallback
+            importance = min(len(text.split()) / 100, 0.9)  # Length-based importance score
+            should_save = len(text.split()) > 10  # Simple fallback
+            return should_save, importance
     
     async def prepare_text_for_storage(self, text: str, max_length: int = 150) -> str:
         """Prepare text for storage by summarizing if needed.

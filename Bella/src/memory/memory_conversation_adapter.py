@@ -116,18 +116,31 @@ class MemoryConversationAdapter:
             # Check if important enough to remember
             context = f"User: {user_input}\nAssistant: {assistant_response}"
             
-            should_remember, importance = await memory_manager.should_store_memory(context)
+            # Use the fixed should_store_memory method which now returns a tuple correctly
+            result = await memory_manager.should_store_memory(context)
+            
+            # Handle both tuple return and legacy boolean return formats
+            if isinstance(result, tuple) and len(result) == 2:
+                should_remember, importance = result
+            elif isinstance(result, bool):
+                should_remember = result
+                importance = 0.5  # Default importance if not provided
+            else:
+                should_remember = False
+                importance = 0.0
+                logging.warning(f"Unexpected return type from should_store_memory: {type(result)}")
             
             if should_remember and importance >= 0.75:
                 # This is a significant conversation worth remembering
                 logging.info(f"Saving conversation to memory (importance: {importance:.2f})")
                 
-                # Process with memory manager
-                modified_response = await memory_manager.process_conversation_turn(
+                # Process with memory manager - returns a dictionary, not a tuple
+                result = await memory_manager.process_conversation_turn(
                     user_input, assistant_response
                 )
                 
-                return modified_response.get("modified_response")
+                if isinstance(result, dict) and "modified_response" in result:
+                    return result.get("modified_response")
                 
             # Return unchanged response if no modifications needed
             return None
