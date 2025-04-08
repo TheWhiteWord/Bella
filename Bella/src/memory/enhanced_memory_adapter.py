@@ -306,14 +306,19 @@ class EnhancedMemoryAdapter:
         try:
             # Create a new coroutine each time to avoid reuse issues
             importance = await self._score_memory_importance_safe(text)
-            should_store = importance >= 0.7
+            # Lower threshold from 0.7 to 0.5 to ensure more memories are stored
+            should_store = importance >= 0.5
+            logging.info(f"Memory importance score: {importance:.2f}, should store: {should_store}")
             return should_store, importance
         except Exception as e:
             logging.error(f"Error determining memory storage: {e}")
             return False, 0.0
             
     async def _score_memory_importance_safe(self, text: str) -> float:
-        """Safely score memory importance by creating a fresh coroutine each time.
+        """Safely score memory importance by creating a fresh scoring request each time.
+        
+        This implementation fixes the "cannot reuse already awaited coroutine" error by
+        delegating directly to the scoring logic rather than reusing the coroutine.
         
         Args:
             text: Text to evaluate
@@ -321,8 +326,56 @@ class EnhancedMemoryAdapter:
         Returns:
             Importance score (0-1)
         """
-        # This creates a fresh coroutine each time, avoiding the "cannot reuse already awaited coroutine" error
-        return await self.processor.score_memory_importance(text)
+        try:
+            # Use direct scoring logic to avoid coroutine reuse issues
+            # Check for explicit cues first (faster than embeddings)
+            text_lower = text.lower()
+            
+            # Some clear indicators of importance
+            if any(phrase in text_lower for phrase in [
+                "remember this", "don't forget", "important", "make sure to",
+                "critical", "top priority", "must remember", "never forget"
+            ]):
+                return 0.95  # Very high importance
+                
+            # Check for potential personally relevant info
+            if any(phrase in text_lower for phrase in [
+                "my name is", "i work at", "my job", "my birthday", 
+                "i live in", "my address", "my phone", "my email",
+                "i like", "i love", "i prefer", "i hate", "i think"
+            ]):
+                return 0.85  # High importance
+            
+            # Use simpler scoring to prevent coroutine errors
+            # Get embedding for the text
+            text_embedding = await self.processor.generate_embedding(text, fast_mode=True)
+            if not text_embedding:
+                return 0.6  # Default to moderate importance if embedding fails
+            
+            # These are common concepts that represent important information
+            important_concepts = ["personal information", "key fact", "important memory"]
+            
+            # Calculate similarity with key concepts
+            scores = []
+            for concept in important_concepts:
+                concept_embedding = await self.processor.generate_embedding(concept, fast_mode=True)
+                if concept_embedding:
+                    # Calculate cosine similarity
+                    text_vec = np.array(text_embedding)
+                    concept_vec = np.array(concept_embedding)
+                    similarity = np.dot(text_vec, concept_vec) / (np.linalg.norm(text_vec) * np.linalg.norm(concept_vec))
+                    scores.append(similarity)
+            
+            # If we have valid scores, use the highest one
+            if scores:
+                importance = max(scores) * 0.85  # Scale to reasonable range
+                return min(importance, 0.9)  # Cap at 0.9
+            
+            return 0.6  # Default to moderate importance
+            
+        except Exception as e:
+            logging.error(f"Error in safe memory importance scoring: {e}")
+            return 0.6  # Default to moderate importance on error
     
     async def store_memory(
         self, memory_type: str, content: str, note_name: str = None

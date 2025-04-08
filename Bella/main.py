@@ -246,7 +246,7 @@ async def main_interaction_loop(model: str = None, sink_name: Optional[str] = No
 
                 print(f"\nYou said: {transcribed_text}")
 
-                if any(word in transcribed_text.lower() for word in ['exit', 'quit']):
+                if any(word in transcribed_text.lower() for word in ['exit']):
                     await tts_engine.generate_speech("Goodbye!")
                     break
 
