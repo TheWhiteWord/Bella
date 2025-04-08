@@ -85,6 +85,13 @@ outputs/*.wav
 # Generated output directories
 outputs/
 
+# ChromaDB files
+Bella/memories/chroma_db/**/*.sqlite3
+Bella/memories/chroma_db/**/*.bin
+Bella/memories/chroma_db/**/*/
+Bella/memories/.vector_store.json
+Bella/memories/.memory_stats.json
+
 # Keep configuration files
 !**/config.json
 !**/tokenizer.json

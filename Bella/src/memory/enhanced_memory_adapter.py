@@ -176,6 +176,11 @@ class EnhancedMemoryAdapter:
             return results_dict, False
 
         try:
+            # Check if collection is empty first
+            if self.chroma_collection.count() == 0:
+                logging.info("ChromaDB collection is empty, skipping query.")
+                return {"results": []}, True
+                
             # Generate Query Embedding
             logging.debug(f"Generating embedding for search query: '{query[:50]}...'")
             query_embedding = await self.processor.generate_embedding(query)
@@ -251,12 +256,25 @@ class EnhancedMemoryAdapter:
             Tuple of (should_store, importance_score)
         """
         try:
-            importance = await self.processor.score_memory_importance(text)
+            # Create a new coroutine each time to avoid reuse issues
+            importance = await self._score_memory_importance_safe(text)
             should_store = importance >= 0.7
             return should_store, importance
         except Exception as e:
             logging.error(f"Error determining memory storage: {e}")
             return False, 0.0
+            
+    async def _score_memory_importance_safe(self, text: str) -> float:
+        """Safely score memory importance by creating a fresh coroutine each time.
+        
+        Args:
+            text: Text to evaluate
+            
+        Returns:
+            Importance score (0-1)
+        """
+        # This creates a fresh coroutine each time, avoiding the "cannot reuse already awaited coroutine" error
+        return await self.processor.score_memory_importance(text)
     
     async def store_memory(
         self, memory_type: str, content: str, note_name: str = None

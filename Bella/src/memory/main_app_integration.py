@@ -116,7 +116,15 @@ class BellaMemoryManager:
             await self.initialize()
             
         try:
-            return await self.enhanced_adapter.processor.score_memory_importance(text)
+            # Create a fresh coroutine each time to avoid the "cannot reuse already awaited coroutine" error
+            # Instead of directly calling the processor's method, create a new score_memory_importance call
+            if hasattr(self.enhanced_adapter, '_score_memory_importance_safe'):
+                # Use the safe method we created earlier
+                return await self.enhanced_adapter._score_memory_importance_safe(text)
+            else:
+                # Create a new processor call each time to prevent coroutine reuse
+                importance = await self.enhanced_adapter.processor.score_memory_importance(text)
+                return importance
         except Exception as e:
             logging.error(f"Error evaluating memory importance: {e}")
             return 0.5  # Default to medium importance
