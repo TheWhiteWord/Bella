@@ -39,6 +39,14 @@ async def semantic_memory_search(query: str, top_n: int = 5) -> Dict[str, Any]:
     """
     logging.info(f"Executing semantic_memory_search tool with query: '{query[:50]}...', top_n={top_n}")
     try:
+        # Ensure top_n is an integer (might be passed as string from function call)
+        if isinstance(top_n, str):
+            try:
+                top_n = int(top_n)
+            except ValueError:
+                logging.warning(f"Invalid top_n value: {top_n}, using default of 5")
+                top_n = 5
+        
         # Ensure the adapter is initialized
         if not memory_adapter._initialized:
             logging.warning("Memory adapter not initialized, attempting initialization.")
@@ -118,23 +126,37 @@ async def continue_conversation(thread_id: Optional[str] = None) -> Dict[str, An
                 return {"success": False, "message": msg}
         else:
             # Find the most recent conversation
-            notes = await list_notes("conversations", sort_by="date", limit=1)
+            # Get all conversation notes first
+            notes = await list_notes("conversations")
             if notes:
-                latest_note = notes[0]
-                path = latest_note.get("path")
-                retrieved_id = latest_note.get("name")
-                content = await read_note(path)
-                if content:
-                    logging.info(f"Retrieved most recent conversation thread: {retrieved_id}")
-                    return {"success": True, "thread_id": retrieved_id, "history": content}
-                else:
-                    msg = f"Could not read content for the latest conversation: {retrieved_id}"
-                    logging.warning(msg)
-                    return {"success": False, "message": msg}
-            else:
-                msg = "No conversation history found."
-                logging.info(msg)
-                return {"success": False, "message": msg}
+                # Since we can't sort directly with list_notes, we'll manually find the most recent
+                # by checking file modification times
+                conversation_files = []
+                for note_name in notes:
+                    path = os.path.join("memories", "conversations", f"{note_name}.md")
+                    if os.path.exists(path):
+                        mtime = os.path.getmtime(path)
+                        conversation_files.append((path, note_name, mtime))
+                
+                # Sort by modification time (most recent first)
+                conversation_files.sort(key=lambda x: x[2], reverse=True)
+                
+                # Get the most recent conversation
+                if conversation_files:
+                    path, retrieved_id, _ = conversation_files[0]
+                    content = await read_note(path)
+                    if content:
+                        logging.info(f"Retrieved most recent conversation thread: {retrieved_id}")
+                        return {"success": True, "thread_id": retrieved_id, "history": content}
+                    else:
+                        msg = f"Could not read content for the latest conversation: {retrieved_id}"
+                        logging.warning(msg)
+                        return {"success": False, "message": msg}
+                
+            # If we get here, no conversations were found
+            msg = "No conversation history found."
+            logging.info(msg)
+            return {"success": False, "message": msg}
     except Exception as e:
         logging.exception(f"Error executing continue_conversation tool: {e}")
         return {"success": False, "message": f"An unexpected error occurred: {e}"}

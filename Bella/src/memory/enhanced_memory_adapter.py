@@ -15,7 +15,9 @@ import chromadb
 from chromadb.utils import embedding_functions
 import uuid
 
-CHROMA_DB_PATH = "memories/chroma_db"
+# Use absolute paths for ChromaDB to ensure consistency
+import os.path
+CHROMA_DB_PATH = os.path.abspath(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "memories", "chroma_db"))
 CHROMA_COLLECTION_NAME = "bella_memories"
 CHROMA_METADATA = {"hnsw:space": "cosine"}
 
@@ -92,7 +94,7 @@ class EnhancedMemoryAdapter:
             logging.exception(f"Error initializing memory system: {e}")  # Use exception
             return False
 
-    async def _add_memory_to_vector_db(self, memory_id: str, content: str, metadata: dict):
+    async def _add_memory_to_vector_db(self, memory_id: str, content: str, metadata: dict) -> bool:
         """Generates embedding and adds the memory to the ChromaDB collection.
 
         Args:
@@ -101,27 +103,51 @@ class EnhancedMemoryAdapter:
             content (str): The text content of the memory to be embedded.
             metadata (dict): A dictionary containing metadata associated with the memory.
                              Must include 'file_path'. Other common fields: 'title', 'tags', 'created_at'.
+                             
+        Returns:
+            bool: True if memory was successfully added to ChromaDB, False otherwise.
         """
+        # Make sure we're initialized
+        if not self._initialized:
+            success = await self.initialize()
+            if not success:
+                logging.error("Failed to initialize memory adapter. Cannot add to ChromaDB.")
+                return False
+
         if not self.chroma_collection:
             logging.error("ChromaDB collection not available. Cannot add memory.")
-            return
+            return False
 
         if not memory_id:
             logging.error("Memory ID is required to add to ChromaDB.")
-            return
+            return False
 
         if 'file_path' not in metadata:
             logging.error(f"Metadata for memory ID '{memory_id}' is missing 'file_path'. Cannot add to ChromaDB.")
-            return
+            return False
 
         try:
+            # Check if memory already exists in collection - if so, we'll update it
+            existing = False
+            try:
+                # Check if ID already exists
+                get_result = self.chroma_collection.get(
+                    ids=[memory_id],
+                    include=['metadatas']
+                )
+                existing = len(get_result['ids']) > 0
+                if existing:
+                    logging.info(f"Memory ID '{memory_id}' already exists in ChromaDB. Updating.")
+            except Exception as e:
+                logging.debug(f"Error checking if memory exists (likely new): {e}")
+            
             # Generate Embedding
             logging.debug(f"Generating embedding for memory ID: {memory_id}")
             embedding_vector = await self.processor.generate_embedding(content)
 
             if not embedding_vector:
                 logging.error(f"Failed to generate embedding for memory ID: {memory_id}")
-                return
+                return False
 
             # Prepare Metadata for ChromaDB
             chroma_metadata = {}
@@ -138,19 +164,41 @@ class EnhancedMemoryAdapter:
 
             if 'file_path' not in chroma_metadata:
                 logging.error(f"Critical metadata 'file_path' was lost during type conversion for memory ID '{memory_id}'.")
-                return
+                return False
 
             # Add to ChromaDB Collection
-            logging.info(f"Adding memory to ChromaDB. ID: {memory_id}, Metadata: {chroma_metadata.keys()}")
-            self.chroma_collection.add(
-                ids=[memory_id],
-                embeddings=[embedding_vector],
-                metadatas=[chroma_metadata]
-            )
-            logging.debug(f"Successfully added/updated memory ID '{memory_id}' in ChromaDB.")
+            logging.info(f"Adding memory to ChromaDB. ID: {memory_id}, Path: {chroma_metadata.get('file_path')}")
+            
+            try:
+                if existing:
+                    # Update existing record
+                    self.chroma_collection.update(
+                        ids=[memory_id],
+                        embeddings=[embedding_vector],
+                        metadatas=[chroma_metadata]
+                    )
+                else:
+                    # Add new record
+                    self.chroma_collection.add(
+                        ids=[memory_id],
+                        embeddings=[embedding_vector],
+                        metadatas=[chroma_metadata]
+                    )
+                
+                # Verify memory was added by checking count
+                count_after = self.chroma_collection.count()
+                logging.info(f"ChromaDB collection now has {count_after} items.")
+                
+                logging.debug(f"Successfully added/updated memory ID '{memory_id}' in ChromaDB.")
+                return True
+                
+            except Exception as e:
+                logging.exception(f"ChromaDB operation failed for memory ID '{memory_id}': {e}")
+                return False
 
         except Exception as e:
             logging.exception(f"Error adding memory ID '{memory_id}' to ChromaDB: {e}")
+            return False
 
     async def search_memory(self, query: str, top_n: int = 5) -> Tuple[Dict[str, Any], bool]:
         """Search for relevant memories using ChromaDB semantic search.
@@ -316,21 +364,29 @@ class EnhancedMemoryAdapter:
             note_name = re.sub(r'[^\w\-]', '-', note_name)
 
             # Create memories directory if it doesn't exist
-            os.makedirs(os.path.join("memories", memory_type), exist_ok=True)
+            memory_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "memories", memory_type)
+            os.makedirs(memory_dir, exist_ok=True)
 
             # Store to file system using memory_api
             path = await save_note(content, memory_type, note_name)
 
             if path:
                 logging.info(f"Successfully saved memory file: {path}")
+                # Use absolute path to ensure consistency
+                abs_path = os.path.abspath(path) if not os.path.isabs(path) else path
+                
                 # Index the memory in ChromaDB
                 memory_id = f"{memory_type}/{note_name}"
                 metadata = {
-                    "file_path": path,
+                    "file_path": abs_path,
                     "title": note_name.replace("-", " ").title(),
                     "created_at": datetime.now().isoformat(),
                     "memory_type": memory_type,
                 }
+                # Add additional debug logging
+                logging.debug(f"Adding to ChromaDB with ID: {memory_id}, Path: {abs_path}")
+                
+                # Store memory in ChromaDB and verify success
                 await self._add_memory_to_vector_db(memory_id, content, metadata)
                 return True, path
             else:

@@ -8,6 +8,8 @@ import os
 import re
 import glob
 import json
+import yaml
+import logging
 from typing import Dict, List, Any, Optional, Union
 from datetime import datetime
 from pathlib import Path
@@ -239,17 +241,52 @@ async def save_note(
     # Ensure title is safe for filenames
     note_name = re.sub(r'[^\w\-]', '-', note_name)
     
-    # Create a new note
-    result = await write_note(
-        title=note_name,
-        content=content,
-        folder=memory_type,
-        tags=[memory_type]
-    )
-    
-    if result and result.get('success'):
-        return result.get('path')
-    return None
+    try:
+        # Get absolute root memories directory
+        manager = get_memory_manager()
+        memory_dir = os.path.abspath(manager.memory_dir)
+        
+        # Create the memory directory if it doesn't exist
+        memory_type_dir = os.path.join(memory_dir, memory_type)
+        os.makedirs(memory_type_dir, exist_ok=True)
+        
+        # Construct the full file path
+        file_path = os.path.join(memory_type_dir, f"{note_name}.md")
+        
+        # Create or format frontmatter
+        frontmatter = {
+            'title': note_name,
+            'created': datetime.now().isoformat(),
+            'updated': datetime.now().isoformat(),
+            'type': 'memory',
+            'tags': [memory_type]
+        }
+        
+        # Create formatted markdown content with frontmatter
+        formatted_content = f"---\n{yaml.dump(frontmatter)}---\n\n{content}"
+        
+        # Write the file directly to ensure it's created properly
+        with open(file_path, 'w', encoding='utf-8') as f:
+            f.write(formatted_content)
+            
+        # Return the absolute path to the created file
+        return os.path.abspath(file_path)
+        
+    except Exception as e:
+        logging.exception(f"Error directly saving note file: {e}")
+        
+        # Fall back to the original method if direct write fails
+        result = await write_note(
+            title=note_name,
+            content=content,
+            folder=memory_type,
+            tags=[memory_type]
+        )
+        
+        if result and 'path' in result:
+            return os.path.abspath(result['path'])
+        
+        return None
 
 async def list_notes(memory_type: str, prefix: str = None) -> List[str]:
     """List all notes in a memory type/folder.

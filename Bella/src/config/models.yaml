@@ -32,7 +32,7 @@ models:
       max_tokens: 100
       min_p: 0.05
 
-default_model: "Lexi"  # Default model to use
+default_model: "Mistral"  # Default model to use
 
 # --- Memory System Configuration ---
 memory:

@@ -52,8 +52,8 @@ async def generate(
             from .config_manager import ModelConfig
             model_config = ModelConfig()
             model_info = model_config.get_model_config(model)
-            if model_info and "model" in model_info:
-                actual_model = model_info["model"]            
+            if model_info and "name" in model_info:
+                actual_model = model_info["name"]            
                 if verbose:
                     print(f"Using actual model name from config: {actual_model}")
         except Exception as e:
@@ -128,8 +128,8 @@ async def generate_with_tools(
             from .config_manager import ModelConfig
             model_config = ModelConfig()
             model_info = model_config.get_model_config(model)
-            if model_info and "model" in model_info:
-                actual_model = model_info["model"]            
+            if model_info and "name" in model_info:
+                actual_model = model_info["name"]            
                 if verbose:
                     print(f"Using actual model name from config: {actual_model}")
         except Exception as e:

@@ -147,6 +147,7 @@ async def generate_chat_response_with_tools(
         You have access to tools to help you manage your memory and perform tasks.
         Only use tools when necessary and relevant to the user's question.
         Do not mention the tools to the user unless explicitly asked.
+        Do not mention your memory capabilities unless relevant to the conversation.
         When you use a tool, carefully examine the results before responding.
         
         Memory Tools:
