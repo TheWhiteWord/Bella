@@ -17,7 +17,8 @@ import numpy as np
 from .main_app_integration import memory_manager
 from .project_manager.memory_integration import get_memory_integration
 
-# Ensure the memory_manager is initialized before use
+
+
 class AutonomousMemory:
     """Autonomous memory system that works in the background during conversations."""
 
@@ -211,9 +212,10 @@ class AutonomousMemory:
         combined_text = f"User: {user_input}\nAssistant: {assistant_response}"
         metadata = {"tags": ["conversation", "auto-saved"], "is_important": False}
 
-        # Basic filter: Don't store very short exchanges
-        if len(user_input.split()) < 4 or len(assistant_response.split()) < 8:
-            logging.debug("Skipping memory storage: Conversation too short.")
+        # Basic filter: Don't store very short exchanges - but check user input separately
+        # To allow storing important user messages even if the response is short
+        if len(user_input.split()) < 4:
+            logging.debug("Skipping memory storage: User input too short.")
             return False, {}
 
         try:
@@ -340,30 +342,50 @@ class AutonomousMemory:
 
         # --- Simplified Intent Checks ---
         # 1. Explicit memory recall phrases (high confidence)
-        #    Use simpler substring checks
         explicit_recall_indicators = [
-            "remember what i told you", "recall what i said", "what did i tell you about",
-            "what did i say about", "what have i told you", "do you remember when i",
-            "remember when i mentioned", "recall when i told you", "what was my opinion on",
-            "what did i think about", "remind me about"
+            "remember what i told you ", "recall what i said ", "what did i tell you about ",
+            "what did i say about ", "what have i told you ", "do you remember when i ",
+            "remember when i mentioned ", "recall when i told you ", "what was my opinion on ",
+            "what did i think about ", "remind me about "
         ]
-        # --- FIX: Use simple 'in' check ---
-        if any(indicator in query_lower for indicator in explicit_recall_indicators):
-            logging.debug(f"Query contains explicit memory recall indicator: '{query_lower}'")
+        logging.debug(f"--- Checking Explicit Indicators --- Query: '{query_lower}'")
+        matched_explicit = False
+        for indicator in explicit_recall_indicators:
+            is_match = query_lower.startswith(indicator)
+            logging.debug(f"Checking if '{query_lower}' starts with '{indicator}' -> {is_match}")
+            if is_match:
+                logging.debug(f"MATCH FOUND: Query starts with explicit memory recall indicator: '{indicator}' in '{query_lower}'")
+                matched_explicit = True
+                break
+
+        logging.debug(f"Explicit match result: {matched_explicit}")
+        if matched_explicit:
+            logging.debug("Returning True due to explicit match.")
             return True
+        logging.debug("--- Finished Explicit Indicators Check ---")
 
         # 2. Queries about personal preferences, thoughts, or past statements (medium confidence)
+        # More lenient regex patterns without word boundaries
         personal_query_patterns = [
-            r"\bmy\s+(opinion|thought|view|preference|stance|position|take|feeling|belief|perspective|interpretation|understanding)\b",
-            r"\b(what|how)\s+(do|did|would)\s+i\s+(think|believe|feel|say|interpret)\b", # Ensure 'i' is lowercase
-            r"\b(what|how)\s+(is|was|were)\s+my\s+(opinion|thought|view|preference|stance|position|take|feeling|belief|perspective|interpretation|understanding)\b",
-            r"\b(do|did)\s+i\s+(like|enjoy|prefer|agree|mention|say)\b", # Ensure 'i' is lowercase
-            r"\bregarding\s+our\s+last\s+discussion\b",
-            r"\bbased\s+on\s+what\s+i\s+said\b" # Ensure 'i' is lowercase
+            r"my\s+(opinion|thought|view|preference|stance|position|take|feeling|belief|perspective|interpretation|understanding)",
+            r"(what|how)\s+(do|did|would)\s+i\s+(think|believe|feel|say|interpret)",
+            r"(what|how|what's)\s+(is|was|were|'s)\s+my\s+(opinion|thought|view|preference|stance|position|take|feeling|belief|perspective|interpretation|understanding)",
+            r"(do|did)\s+i\s+(like|enjoy|prefer|agree|mention|say)",
+            r"regarding\s+our\s+last\s+discussion",
+            r"based\s+on\s+what\s+i\s+said",
+            r"what\s+was\s+my" # Add specific case that was failing
         ]
-        if any(re.search(pattern, query_lower) for pattern in personal_query_patterns):
-             logging.debug(f"Query appears to be about user's past statements or opinions: '{query_lower}'")
-             return True
+        
+        # Log before pattern matching for debugging
+        logging.debug(f"Checking personal query patterns against: '{query_lower}'")
+        
+        for pattern in personal_query_patterns:
+            if re.search(pattern, query_lower):
+                logging.debug(f"Query matched pattern '{pattern}': '{query_lower}'")
+                return True
+                
+        logging.debug(f"Query did not match any personal query patterns")
+        
 
         # 3. General questions that *might* benefit from memory (lower confidence - rely on semantic search relevance)
         question_words = {"what", "how", "why", "when", "where", "who", "did", "do", "was", "is"}

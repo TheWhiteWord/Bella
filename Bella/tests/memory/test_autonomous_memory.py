@@ -13,6 +13,7 @@ import tempfile
 import shutil  # Import shutil for cleanup
 from unittest.mock import patch, MagicMock, AsyncMock
 from datetime import datetime, timedelta
+import logging  # Add logging for debugging
 
 # Add project root to path for imports
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
@@ -78,33 +79,27 @@ def memory_system():
     """Creates an instance of the autonomous memory system with test configuration."""
     mock_manager_instance = MockMemoryManager()
 
-    # Patch the manager in both potential import locations
-    with patch('src.memory.main_app_integration.memory_manager', new=mock_manager_instance) as patched_manager_main, \
-         patch('src.memory.autonomous_memory.memory_manager', new=mock_manager_instance) as patched_manager_auto:
+    # --- FIX: Patch memory_manager where it's used (in autonomous_memory module) ---
+    with patch('src.memory.autonomous_memory.memory_manager', new=mock_manager_instance) as patched_manager:
 
         # Patch get_memory_integration to return a mock that saves files to temp dir
         mock_integration = AsyncMock()
-
         async def mock_save_standardized(mem_type, content, title, tags=None):
             safe_title = re.sub(r'[^\w\-]+', '-', title.lower())
             path = os.path.join(mock_manager_instance.memory_dir, mem_type, f"{safe_title}.md")
             os.makedirs(os.path.dirname(path), exist_ok=True)
-            # Ensure tags are handled correctly if None
             tags_str = f"tags: {tags if tags else []}"
             with open(path, "w") as f:
                 f.write(f"---\ntitle: {title}\n{tags_str}\n---\n{content}")
             return {"success": True, "path": path}
-
         mock_integration.save_standardized_memory = AsyncMock(side_effect=mock_save_standardized)
 
         with patch('src.memory.autonomous_memory.get_memory_integration', return_value=mock_integration):
+            # Instantiate AutonomousMemory *after* the patches are active
             memory = AutonomousMemory()
-            # Initialize with test values
-            memory.last_memory_check = datetime.now() - timedelta(seconds=30)  # Ensure memory check passes
-            # Yield both the memory instance and the *patched* manager instance
-            yield memory, patched_manager_auto
+            memory.last_memory_check = datetime.now() - timedelta(seconds=30)
+            yield memory, patched_manager # Yield the patched manager
 
-    # Clean up temp directory after test using the fixture's scope
     mock_manager_instance.cleanup()
 
 
@@ -132,12 +127,27 @@ async def test_should_store_conversation(memory_system):
     assert "free-will" in metadata["tags"]
 
     # --- FIX: Ensure mock is correctly set for Case 3 ---
-    # Reset mock for subsequent tests (Case 3)
-    mock_manager.enhanced_adapter.should_store_memory = AsyncMock(return_value=(True, 0.80)) # Ensure it returns True
+    # Reset mocks explicitly for Case 3 to avoid interference
+    mock_manager.enhanced_adapter.should_store_memory.reset_mock()
+    mock_manager.enhanced_adapter.detect_memory_topics.reset_mock()
+
+    # Configure mocks specifically for Case 3
+    mock_manager.enhanced_adapter.should_store_memory = AsyncMock(return_value=(True, 0.80))
     mock_manager.enhanced_adapter.detect_memory_topics = AsyncMock(return_value=["hegel", "kant", "nietzsche"])
+
     philosophical_input = "I want to discuss how Hegel's dialectic relates to Kant's transcendental idealism and Nietzsche's perspectivism"
     philosophical_output = "That's a fascinating intersection..."
+
+    # Call the function under test
     should_store, metadata = await memory._should_store_conversation(philosophical_input, philosophical_output)
+
+    # --- Add Assertions to Verify Mock Calls ---
+    # Verify should_store_memory was called correctly
+    mock_manager.enhanced_adapter.should_store_memory.assert_called_once()
+    # Verify detect_memory_topics was called (since should_store_memory returned True)
+    mock_manager.enhanced_adapter.detect_memory_topics.assert_called_once()
+
+    # The original assertion that was failing
     assert should_store # This was failing
     assert "hegel" in metadata["tags"]
     assert "kant" in metadata["tags"]
@@ -286,26 +296,31 @@ async def test_should_augment_with_memory_simplified(memory_system):
     """Test simplified criteria for adding memory context to responses."""
     memory, mock_manager = memory_system  # Unpack the fixture result
 
-    # Reset the last memory check to simulate elapsed time
-    memory.last_memory_check = datetime.now() - timedelta(seconds=30)
+    # --- FIX: Reset time check before each relevant assertion ---
 
     # Test explicit recall phrases
+    memory.last_memory_check = datetime.now() - timedelta(seconds=30) # Reset time
     assert await memory._should_augment_with_memory("remember what i told you about Nietzsche?")
 
     # Test personal query patterns
-    # This pattern should match "my opinion"
+    memory.last_memory_check = datetime.now() - timedelta(seconds=30) # Reset time
     assert await memory._should_augment_with_memory("what was my opinion on Kant?")
+    memory.last_memory_check = datetime.now() - timedelta(seconds=30) # Reset time
     assert await memory._should_augment_with_memory("What's my view on the mind-body problem?")
+    memory.last_memory_check = datetime.now() - timedelta(seconds=30) # Reset time
     assert await memory._should_augment_with_memory("How did I feel about that art exhibition?")
 
     # Test general questions with context terms (should trigger semantic search)
+    memory.last_memory_check = datetime.now() - timedelta(seconds=30) # Reset time
     assert await memory._should_augment_with_memory("What about our discussion on ethics?")
 
     # Test general knowledge questions (should NOT trigger augmentation)
+    memory.last_memory_check = datetime.now() - timedelta(seconds=30) # Reset time
     assert not await memory._should_augment_with_memory("What is epistemology?")
+    memory.last_memory_check = datetime.now() - timedelta(seconds=30) # Reset time
     assert not await memory._should_augment_with_memory("Tell me about Plato.")
 
-    # Test throttling by time
+    # Test throttling by time (SHOULD fail time check)
     memory.last_memory_check = datetime.now()  # Reset to current time
     assert not await memory._should_augment_with_memory("Remember what I told you about free will?")
 
