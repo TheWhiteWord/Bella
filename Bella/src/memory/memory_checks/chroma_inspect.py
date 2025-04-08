@@ -26,8 +26,10 @@ import pandas as pd
 import numpy as np
 from typing import Dict, List, Any, Optional, Tuple, Union
 from datetime import datetime
+from pathlib import Path
 import chromadb
 from chromadb.utils import embedding_functions
+from chromadb.config import Settings
 import matplotlib.pyplot as plt
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
@@ -60,6 +62,9 @@ class ChromaInspector:
         self.collection_name = collection_name
         self.client = None
         self.collection = None
+        
+        # Base directory for memory files
+        self.base_dir = Path(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), "memories"))
         
     def connect(self) -> bool:
         """Connect to the ChromaDB database.
@@ -429,39 +434,51 @@ class ChromaInspector:
         except Exception as e:
             logger.error(f"Error visualizing embeddings: {e}", exc_info=True)
     
-    def fix_missing_files(self, dry_run: bool = True) -> Tuple[int, int]:
+    def fix_missing_files(self, dry_run: bool = True, remove_missing: bool = False) -> Tuple[int, int, int]:
         """Find and fix entries with missing files.
         
         This will try to locate files in the standard memory directories and
-        update the metadata if files have moved.
+        update the metadata if files have moved. If remove_missing is True,
+        it will also delete entries from ChromaDB when the corresponding files
+        cannot be found.
         
         Args:
             dry_run: If True, don't make any changes, just report
+            remove_missing: If True, remove entries with missing files from ChromaDB
             
         Returns:
-            Tuple of (fixed_count, failed_count)
+            Tuple of (fixed_count, removed_count, failed_count)
         """
         if not self.collection:
             if not self.connect():
-                return 0, 0
+                return 0, 0, 0
         
         try:
             # Get all entries with metadatas
             results = self.collection.get(include=['metadatas'])
             
             fixed_count = 0
+            removed_count = 0
             failed_count = 0
             
             # Memory directories to search
             memory_dirs = ["facts", "preferences", "conversations", "reminders", "general"]
             base_memory_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "memories")
             
+            # Track IDs to remove if remove_missing is True
+            ids_to_remove = []
+            
             for i, memory_id in enumerate(results['ids']):
                 metadata = results['metadatas'][i]
                 file_path = metadata.get('file_path', '')
                 
-                if not file_path or os.path.exists(file_path):
-                    continue  # Skip if file path is empty or file exists
+                if not file_path:
+                    logger.warning(f"No file path for {memory_id}, skipping")
+                    failed_count += 1
+                    continue
+                
+                if os.path.exists(file_path):
+                    continue  # Skip if file exists at the current path
                 
                 # Extract filename
                 filename = os.path.basename(file_path)
@@ -500,13 +517,199 @@ class ChromaInspector:
                         fixed_count += 1
                 else:
                     logger.warning(f"Could not find file {filename} for {memory_id}")
-                    failed_count += 1
+                    
+                    if remove_missing:
+                        # Mark for removal if file not found and remove_missing is True
+                        ids_to_remove.append(memory_id)
+                        logger.info(f"Marking {memory_id} for removal (file {filename} not found)")
+                    else:
+                        failed_count += 1
             
-            return fixed_count, failed_count
+            # Remove entries if remove_missing is True and not in dry_run mode
+            if remove_missing and ids_to_remove and not dry_run:
+                try:
+                    self.collection.delete(ids=ids_to_remove)
+                    removed_count = len(ids_to_remove)
+                    logger.info(f"Removed {removed_count} entries with missing files from ChromaDB")
+                except Exception as e:
+                    logger.error(f"Failed to remove entries from ChromaDB: {e}")
+                    failed_count += len(ids_to_remove)
+            elif remove_missing and ids_to_remove:
+                # In dry-run mode, just report
+                removed_count = len(ids_to_remove)
+                logger.info(f"Would remove {removed_count} entries with missing files from ChromaDB")
+            
+            return fixed_count, removed_count, failed_count
             
         except Exception as e:
             logger.error(f"Error fixing missing files: {e}")
-            return 0, 0
+            return 0, 0, 0
+    
+    def _ensure_memory_dirs(self) -> None:
+        """Ensure that all necessary memory directories exist."""
+        memory_types = ["general", "conversations", "facts", "preferences", "projects", "reminders"]
+        
+        for memory_type in memory_types:
+            dir_path = self.base_dir / memory_type
+            dir_path.mkdir(parents=True, exist_ok=True)
+            logger.info(f"Ensured directory exists: {dir_path}")
+    
+    def _generate_md_content(self, metadata: Dict[str, Any], document: str) -> str:
+        """Generate markdown content from metadata and document.
+        
+        Args:
+            metadata: Dictionary of metadata
+            document: The memory content
+            
+        Returns:
+            Formatted markdown string
+        """
+        # Extract metadata
+        title = metadata.get("title", "untitled")
+        memory_type = metadata.get("memory_type", "general")
+        created_at = metadata.get("created_at", datetime.now().isoformat())
+        tags = metadata.get("tags", [memory_type])
+        
+        # Ensure tags is a list
+        if isinstance(tags, str):
+            tags = [t.strip() for t in tags.split(',')]
+        
+        # Format frontmatter
+        frontmatter = [
+            "---",
+            f"created: '{created_at}'",
+            f"tags:",
+        ]
+        
+        # Add tags
+        for tag in tags:
+            frontmatter.append(f"- {tag}")
+            
+        frontmatter.extend([
+            f"title: {title}",
+            f"type: memory",
+            f"updated: '{created_at}'",
+            "---",
+            "",
+            f"{document}"
+        ])
+        
+        return "\n".join(frontmatter)
+    
+    def _get_md_file_path(self, metadata: Dict[str, Any]) -> Path:
+        """Get the path for a markdown file based on metadata.
+        
+        Args:
+            metadata: Dictionary of metadata
+            
+        Returns:
+            Path object for the markdown file
+        """
+        # Extract memory type and title
+        memory_type = metadata.get("memory_type", "general")
+        title = metadata.get("title", "untitled")
+        
+        # If file_path is directly specified, use it
+        if "file_path" in metadata:
+            return Path(metadata["file_path"])
+        
+        # Otherwise construct path based on memory type and title
+        filename = f"{title.lower().replace(' ', '-')}.md"
+        return self.base_dir / memory_type / filename
+    
+    async def sync_chromadb_to_files(self, dry_run: bool = True) -> Dict[str, Any]:
+        """Synchronize all memories from ChromaDB to markdown files.
+        
+        This ensures that for every entry in ChromaDB, there is a corresponding
+        markdown file on disk. This is useful for recovery or after importing
+        memories into ChromaDB from another source.
+        
+        Args:
+            dry_run: If True, don't make any changes, just report
+            
+        Returns:
+            Dictionary with synchronization statistics
+        """
+        if not self.collection:
+            if not self.connect():
+                logger.warning("No collection available, nothing to synchronize")
+                return {"error": "No collection available"}
+            
+        # Get all items from the collection
+        try:
+            all_items = self.collection.get(include=['documents', 'metadatas'])
+            
+            # Check if we got any results
+            if not all_items or "ids" not in all_items or not all_items["ids"]:
+                logger.info("No memories found in ChromaDB")
+                return {"total": 0, "message": "No memories found in ChromaDB"}
+                
+            logger.info(f"Found {len(all_items['ids'])} memories in ChromaDB")
+            
+            # Track statistics
+            stats = {
+                "total": len(all_items["ids"]),
+                "created": 0,
+                "already_existed": 0,
+                "errors": 0
+            }
+            
+            # Ensure memory directories exist
+            self._ensure_memory_dirs()
+            
+            # Process each memory
+            for i, memory_id in enumerate(all_items["ids"]):
+                try:
+                    # Extract content and metadata
+                    document = all_items["documents"][i] if "documents" in all_items else ""
+                    metadata = all_items["metadatas"][i] if "metadatas" in all_items else {}
+                    
+                    # Skip if no document content
+                    if not document:
+                        logger.warning(f"No content found for memory {memory_id}, skipping")
+                        continue
+                    
+                    # Generate file path
+                    md_file_path = self._get_md_file_path(metadata)
+                    
+                    # Check if file already exists
+                    if md_file_path.exists():
+                        logger.info(f"File already exists: {md_file_path}")
+                        stats["already_existed"] += 1
+                        continue
+                    
+                    # Generate markdown content
+                    md_content = self._generate_md_content(metadata, document)
+                    
+                    if not dry_run:
+                        # Ensure parent directory exists
+                        md_file_path.parent.mkdir(parents=True, exist_ok=True)
+                        
+                        # Write to file
+                        with open(md_file_path, "w", encoding="utf-8") as f:
+                            f.write(md_content)
+                            
+                        logger.info(f"Created file: {md_file_path}")
+                    else:
+                        logger.info(f"Would create file: {md_file_path}")
+                    
+                    stats["created"] += 1
+                    
+                except Exception as e:
+                    logger.error(f"Error processing memory {memory_id}: {e}")
+                    stats["errors"] += 1
+            
+            # Log summary
+            logger.info(f"Synchronization complete: {stats['total']} total memories, "
+                       f"{stats['created']} files created, "
+                       f"{stats['already_existed']} files already existed, "
+                       f"{stats['errors']} errors")
+            
+            return stats
+            
+        except Exception as e:
+            logger.error(f"Error synchronizing memories: {e}")
+            return {"error": str(e)}
 
 
 def main():
@@ -545,6 +748,11 @@ def main():
     # Fix command
     fix_parser = subparsers.add_parser('fix', help='Find and fix missing files')
     fix_parser.add_argument('--dry-run', action='store_true', help="Don't make any changes, just report")
+    fix_parser.add_argument('--remove-missing', action='store_true', help="Remove entries from ChromaDB when their files are missing")
+    
+    # Sync command
+    sync_parser = subparsers.add_parser('sync', help='Synchronize ChromaDB entries to markdown files')
+    sync_parser.add_argument('--dry-run', action='store_true', help="Don't make any changes, just report")
     
     # Config arguments
     parser.add_argument('--db-path', type=str, default=CHROMA_DB_PATH, help='ChromaDB database path')
@@ -643,11 +851,11 @@ def main():
             print("Visualization displayed. Close the window to continue.")
     
     elif args.command == 'fix':
-        fixed, failed = inspector.fix_missing_files(dry_run=args.dry_run)
+        fixed, removed, failed = inspector.fix_missing_files(dry_run=args.dry_run, remove_missing=args.remove_missing)
         if args.dry_run:
-            print(f"Dry run: Would fix {fixed} entries, {failed} would still be missing.")
+            print(f"Dry run: Would fix {fixed} entries, would remove {removed} entries, {failed} would still be missing.")
         else:
-            print(f"Fixed {fixed} entries, {failed} still missing.")
+            print(f"Fixed {fixed} entries, removed {removed} entries, {failed} still missing.")
     
     else:
         parser.print_help()
