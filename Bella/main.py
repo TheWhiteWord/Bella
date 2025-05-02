@@ -26,16 +26,16 @@ sys.path.insert(0, project_root)
 
 from src.utility.audio_session_manager import AudioSessionManager
 from src.utility.buffered_recorder import BufferedRecorder, create_audio_stream
-from src.llm.chat_manager import generate_chat_response, generate_chat_response_with_tools, get_available_models
+from src.llm.chat_manager import generate_chat_response, generate_chat_response_with_tools
 from src.audio.kokoro_tts.kokoro_tts import KokoroTTSWrapper
 from src.llm.config_manager import ModelConfig
 
-# Import enhanced memory system instead of the older memory adapter
-from src.memory.main_app_integration import memory_manager, ensure_memory_initialized
-from src.memory.memory_conversation_adapter import MemoryConversationAdapter
 
-# Import tools registration to ensure memory tools are registered at startup
-import src.memory.register_memory_tools
+# Use new BellaMemory conversation adapter
+from src.bella_memory.memory_conversation_adapter import MemoryConversationAdapter
+
+# Import self/user awareness tools to ensure registration at startup
+from src.bella_memory.tools_self_user_awareness import set_bella_memory_instance, summarize_self_awareness
 
 # Path to the search signal file used by web_search_mcp
 SEARCH_SIGNAL_PATH = os.path.join(tempfile.gettempdir(), "bella_search_status.json")
@@ -127,23 +127,8 @@ async def init_tts_engine(sink_name: Optional[str] = None) -> KokoroTTSWrapper:
         print(f"Error initializing TTS engine: {e}")
         raise
 
-async def init_memory_system() -> None:
-    """Initialize the enhanced memory system with Ollama embeddings.
-    
-    This sets up the semantic memory system using the nomic-embed-text model.
-    """
-    print("\nInitializing enhanced memory system...")
-    try:
-        # Explicitly specify the embedding model to use
-        embedding_model = "nomic-embed-text"
-        print(f"Using embedding model: {embedding_model}")
-        
-        # Initialize memory system with the specified embedding model
-        await ensure_memory_initialized(embedding_model=embedding_model)
-        print(f"Enhanced memory system initialized with {embedding_model} embeddings.")
-    except Exception as e:
-        print(f"Warning: Enhanced memory initialization failed: {e}")
-        print("Falling back to basic memory capabilities.")
+
+
 
 async def main_interaction_loop(model: str = None, sink_name: Optional[str] = None, use_memory: bool = True) -> None:
     """Main loop for capturing speech, generating responses, and playing audio.
@@ -156,6 +141,7 @@ async def main_interaction_loop(model: str = None, sink_name: Optional[str] = No
     print("\nInitializing voice assistant components...")
     tts_engine = None
     recorder = None
+    self_awareness_summary = None
     
     try:
         # Get model from config if not specified
@@ -182,24 +168,22 @@ async def main_interaction_loop(model: str = None, sink_name: Optional[str] = No
                 print(f"\nFallback TTS initialization also failed: {second_e}")
                 raise  # Re-raise the exception if both attempts fail
         
-        # Print available models
-        models = await get_available_models()
-        print("\nAvailable models:")
-        for model_id, info in models.items():
-            status = "✅" if info['available'] else "❌"
-            print(f"{status} {model_id}: {info['description']}")
-        
         print(f"\nUsing model: {model}")
         
+
+
         # Initialize memory system if enabled
         memory_adapter = None
         if use_memory:
-            # Initialize enhanced memory system
-            await init_memory_system()
-            
-            # Create memory conversation adapter for interaction
             memory_adapter = MemoryConversationAdapter()
-            print("Memory conversation adapter initialized.")
+            set_bella_memory_instance(memory_adapter.bella_memory)
+            print("BellaMemory conversation adapter initialized and tools registered.")
+            # Generate self-awareness summary for system prompt
+            try:
+                self_awareness_summary = await summarize_self_awareness()
+                print("[System] Self-awareness summary generated for system prompt.")
+            except Exception as e:
+                print(f"[Warning] Failed to generate self-awareness summary: {e}")
 
         welcome_message = "Voice Assistant ready! Start speaking when ready."
         
@@ -299,7 +283,8 @@ async def main_interaction_loop(model: str = None, sink_name: Optional[str] = No
                     tool_history,
                     model,
                     timeout=15.0,
-                    verbose=False
+                    verbose=False,
+                    self_awareness_summary=self_awareness_summary
                 )
                 
                 print(f"Assistant: {response}")

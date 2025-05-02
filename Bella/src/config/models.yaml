@@ -1,38 +1,22 @@
 models:
 
-  Gemma:
-    name: "gemma3-tools:latest"
-    description: "Google Gemma with vision capabilities and tool use"
-    parameters:
-      top_p: 0.9
-      max_tokens: 100
-      repetition_penalty: 1.05
+  XXS:
+    name: qwen3:1B
 
-#MODELS TO TEST:
+  XS:
+    name: qwen3:2B
+  
+  S:
+    name: qwen3:4B
 
-  Mistral:
-    name: "Mistral-24B:latest"
-    description: "Large model with tool use"
-    parameters:
-      top_p: 0.95
-      top_k: 40
-      repeat_penalty: 1.05
-      min_p: 0.05
-      max_tokens: 100
-      repetition_penalty: 1.05
-
-  Lexi:
-    name: "Lexi:latest"
-    description: "Uncensored model, with tool use"
-    parameters:
-      temperature: 0.8
-      top_p: 0.9
-      top_k: 40
-      repeat_penalty: 1.15
-      max_tokens: 100
-      min_p: 0.05
-
-default_model: "Mistral"  # Default model to use
+  M:
+    name: qwen3:8B
+  
+  L:
+    name: qwen3:14B
+  
+  LEXI:
+    name: Lexi:latest
 
 # --- Memory System Configuration ---
 memory:

@@ -11,7 +11,7 @@ import json
 from typing import Dict, Any, Tuple, List, Optional
 
 from .config_manager import ModelConfig, PromptConfig
-from .ollama_client import generate, generate_with_tools, execute_tool_calls, list_available_models
+from .ollama_client import generate, generate_with_tools, execute_tool_calls
 from .tools_registry import registry as tools_registry
 
 
@@ -80,17 +80,14 @@ async def generate_chat_response(
     Returns:
         str: Generated response or error message
     """
+    import os
     try:
-        # Get model from config if not specified
+        # Always use QWEN_L from .env if model is not specified
         if model is None:
-            model_config = ModelConfig()
-            model = model_config.get_default_model()
-        
+            model = ModelConfig().resolve_model_name("LEXI")
         prompt_config = PromptConfig()
         system_prompt = prompt_config.get_system_prompt()
-        
         print(f"Attempting to use model: {model}")  # Debug line
-        
         response = await generate(
             prompt=f"Given this conversation history:\n{history_context}\n\nRespond to: {user_input}",
             model=model,
@@ -118,7 +115,8 @@ async def generate_chat_response_with_tools(
     model: str = None,
     timeout: float = 20.0,
     max_tool_iterations: int = 3,
-    verbose: bool = False
+    verbose: bool = False,
+    self_awareness_summary: Optional[str] = None
 ) -> Tuple[str, List[Dict[str, Any]]]:
     """Generate a chat response with potential tool usage.
     
@@ -133,32 +131,29 @@ async def generate_chat_response_with_tools(
     Returns:
         Tuple of (final response text, updated conversation history)
     """
+    import os
     try:
-        # Get model from config if not specified
+        # Always use QWEN_L from .env if model is not specified
         if model is None:
-            model_config = ModelConfig()
-            model = model_config.get_default_model()
-        
+            model = ModelConfig().resolve_model_name("LEXI")
         prompt_config = PromptConfig()
-        system_prompt = prompt_config.get_system_prompt()
-        
-        # Add detailed instructions for tool usage with emphasis on memory tools
-        tool_instructions = """
-        You have access to tools to help you manage your memory and perform tasks.
-        Only use tools when necessary and relevant to the user's question.
-        Do not mention the tools to the user unless explicitly asked.
-        When you use a tool, carefully examine the results before responding.
-        
-        Memory Tools:
-        - Use 'semantic_memory_search' when the user asks you to recall information from your memory.
-        - Use 'save_to_memory' when the user shares important information they want you to remember.
-        - Use 'read_specific_memory' when you need to access a specific memory by ID.
-        - Use 'save_conversation' when the conversation contains valuable information worth saving.
-        - Use 'evaluate_memory_importance' to determine if information is worth remembering.
-        - Use 'list_memories_by_type' when you want to see what memories are available.
-        
-        IMPORTANT: After using any tools, you MUST provide a conversational response to the user - never return an empty response.
-        """
+        base_system_prompt = prompt_config.get_system_prompt()
+        # Inject self-awareness summary at the top if provided
+        if self_awareness_summary:
+            system_prompt = f"[BELLA SELF-AWARENESS]\n{self_awareness_summary}\n\n{base_system_prompt}"
+        else:
+            system_prompt = base_system_prompt
+        # Dynamically generate tool instructions from the registry
+        available_tools = tools_registry.get_available_tools()
+        tool_descriptions = "\n".join(
+            f"- {tool['function']['name']}: {tool['function']['description']}"
+            for tool in available_tools
+        )
+        tool_instructions = (
+            "You have access to the following tools to help you manage your memory and perform tasks:\n"
+            f"{tool_descriptions}\n"
+            "IMPORTANT: After using any tools, you MUST provide a conversational response to the user - never return an empty response."
+        )
         system_prompt = f"{system_prompt}\n\n{tool_instructions}"
         
         # Get available tools
@@ -252,47 +247,3 @@ async def generate_chat_response_with_tools(
         logging.error(error_message)
         return f"I encountered an error while processing your request: {str(e)}", conversation_history
 
-async def get_available_models() -> Dict[str, Dict[str, Any]]:
-    """Get list of available local models and their descriptions, including runtime check.
-    
-    Returns:
-        Dict[str, Dict[str, Any]]: Dictionary of model info including availability status
-    """
-    config_models = ModelConfig().list_models()
-    try:
-        ollama_models = await list_available_models()
-        logging.info(f"Ollama models found: {ollama_models}")
-    except Exception as e:
-        logging.error(f"Failed to get Ollama models: {e}")
-        ollama_models = []
-    
-    # Add runtime availability status
-    models_status = {}
-    for nickname, desc in config_models.items():
-        # Get the actual model name from config if available
-        actual_model_name = desc.get("name", nickname) if isinstance(desc, dict) else nickname
-        
-        # Check for model availability with more flexible matching
-        model_exists = False
-        for ollama_model in ollama_models:
-            # Compare with nickname
-            if ollama_model.lower() == nickname.lower():
-                model_exists = True
-                break
-                
-            # Compare with actual model name
-            if isinstance(actual_model_name, str):
-                # Clean up model name for comparison (remove tags like :latest)
-                clean_actual = actual_model_name.split(':')[0].lower()
-                clean_ollama = ollama_model.split(':')[0].lower()
-                
-                if clean_ollama == clean_actual:
-                    model_exists = True
-                    break
-        
-        models_status[nickname] = {
-            'description': desc.get("description", str(desc)) if isinstance(desc, dict) else str(desc),
-            'available': model_exists
-        }
-    
-    return models_status

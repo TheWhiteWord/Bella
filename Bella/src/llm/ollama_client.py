@@ -11,22 +11,49 @@ import logging
 import asyncio
 from typing import Dict, Any, List, Optional, Union
 
+
 # Configure logging
 logging.basicConfig(level=logging.INFO, 
                    format='[%(asctime)s] %(levelname)-8s %(message)s',
                    datefmt='%m/%d/%y %H:%M:%S')
+
+
+# Explicitly load .env from the project root (Bella/.env)
+from dotenv import load_dotenv
+import pathlib
+_PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[3]
+_ENV_PATH = _PROJECT_ROOT / ".env"
+load_dotenv(dotenv_path=_ENV_PATH, override=True)
 
 try:
     import ollama
 except ImportError:
     logging.warning("Ollama Python package not found. Install with: pip install ollama")
 
+def _get_qwen_model(size: str = "XS") -> str:
+    """Get Qwen model name from .env by size (TINY, XS, S, M, L). Defaults to XS (2B)."""
+    env_map = {
+        "XXS": "QWEN_XXS",
+        "XS": "QWEN_XS",
+        "S": "QWEN_S",
+        "M": "QWEN_M",
+        "L": "QWEN_L",
+        "LEXI": "LEXI"
+    }
+    env_var = env_map.get(size.upper(), "QWEN_XS")
+    # Always prefer QWEN_L for 'L', fallback to qwen3:14B
+    if size.upper() == "L":
+        return os.getenv("QWEN_L", "qwen3:14B")
+    return os.getenv(env_var, "qwen3:2B")
+
 async def generate(
     prompt: str,
-    model: str = "mistral",
+    model: str = None,
     system_prompt: str = "",
     verbose: bool = False,
-    timeout: float = 30.0
+    timeout: float = 30.0,
+    qwen_size: str = "XS",
+    thinking_mode: bool = False
 ) -> str:
     """Generate text using Ollama model.
     
@@ -41,54 +68,53 @@ async def generate(
         str: Generated text response
     """
     try:
-        if verbose:
-            print(f"\nGenerating response with Ollama")
-            print(f"Model nickname: {model}")
-        
-        # Check if model is a nickname and get the actual model name
-        
-        actual_model = model
-        try:
+
+        # Always use unified model getter unless explicitly overridden
+        if not model:
             from .config_manager import ModelConfig
-            model_config = ModelConfig()
-            model_info = model_config.get_model_config(model)
-            if model_info and "name" in model_info:
-                actual_model = model_info["name"]            
-                if verbose:
-                    print(f"Using actual model name from config: {actual_model}")
-        except Exception as e:
-            if verbose:
-                print(f"Error resolving model name: {e}")
-            # Continue with the original model name
-        
-        # Make async call to Ollama
+            model = ModelConfig().get_default_model()
+        if verbose:
+            print(f"\nGenerating response with Ollama (Qwen)")
+            print(f"Model: {model}")
+
+        # Compose system prompt with /think or /no_think prefix
+        sys_prompt = system_prompt.strip() if system_prompt else ""
+        if thinking_mode:
+            sys_prompt = f"/think\n{sys_prompt}"
+        else:
+            sys_prompt = f"/no_think\n{sys_prompt}"
+
         loop = asyncio.get_event_loop()
         response = await loop.run_in_executor(
             None,
             lambda: ollama.chat(
                 model=model,
                 messages=[
-                    {"role": "system", "content": system_prompt},
+                    {"role": "system", "content": sys_prompt},
                     {"role": "user", "content": prompt}
                 ],
                 options={
-                    "temperature": 0.7,
-                    "top_k": 50,
-                    "top_p": 0.95
+                    "temperature": 0.6 if thinking_mode else 0.7,
+                    "top_p": 0.95 if thinking_mode else 0.8,
+                    "top_k": 20,
+                    "min_p": 0
                 }
             )
         )
-        
+
         if verbose:
             print(f"Actual model name: {response.get('model', model)}")
-        
+
         if "message" not in response:
             return "Error: Missing response message"
-            
+
         content = response["message"].get("content", "")
-        
+
+        # Remove <think>...</think> tags if present (Qwen models output them by default)
+        content = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL).strip()
+
         return content
-        
+
     except Exception as e:
         logging.error(f"Error generating response: {str(e)}")
         return f"Error generating response: {str(e)}"
@@ -97,10 +123,12 @@ async def generate_with_tools(
     prompt: str,
     history: List[Dict[str, Any]] = None,
     tools: List[Dict[str, Any]] = None,
-    model: str = "mistral",
+    model: str = None,
     system_prompt: str = "",
     verbose: bool = False,
-    timeout: float = 30.0
+    timeout: float = 30.0,
+    qwen_size: str = "XS",
+    thinking_mode: bool = False
 ) -> Dict[str, Any]:
     """Generate text using Ollama model with tool calling support.
     
@@ -117,73 +145,57 @@ async def generate_with_tools(
         Dict: Response with message and any tool calls
     """
     try:
-        if verbose:
-            print(f"\nGenerating response with Ollama (with tools)")
-            print(f"Model nickname: {model}")
-            print(f"Number of tools available: {len(tools) if tools else 0}")
-        
-        # Check if model is a nickname and get the actual model name
-        actual_model = model
-        try:
+        # Always use unified model getter unless explicitly overridden
+        if not model:
             from .config_manager import ModelConfig
-            model_config = ModelConfig()
-            model_info = model_config.get_model_config(model)
-            if model_info and "name" in model_info:
-                actual_model = model_info["name"]            
-                if verbose:
-                    print(f"Using actual model name from config: {actual_model}")
-        except Exception as e:
-            if verbose:
-                print(f"Error resolving model name: {e}")
-            # Continue with the original model name
-            
+            model = ModelConfig().get_default_model()
+        if verbose:
+            print(f"\nGenerating response with Ollama (Qwen, with tools)")
+            print(f"Model: {model}")
+            print(f"Number of tools available: {len(tools) if tools else 0}")
+
+        # Compose system prompt with /think or /no_think prefix
+        sys_prompt = system_prompt.strip() if system_prompt else ""
+        if thinking_mode:
+            sys_prompt = f"/think\n{sys_prompt}"
+        else:
+            sys_prompt = f"/no_think\n{sys_prompt}"
+
         # Prepare messages
         messages = []
-        if system_prompt:
-            messages.append({"role": "system", "content": system_prompt})
-            
-        # Add history if provided
+        if sys_prompt:
+            messages.append({"role": "system", "content": sys_prompt})
         if history:
             messages.extend(history)
-            
-        # Add current user message
-        if prompt:  # Only add if not empty
+        if prompt:
             messages.append({"role": "user", "content": prompt})
-        
-        # Create an async Ollama client
+
         client = ollama.AsyncClient()
-        
-        # Make call with tools
         try:
             response = await asyncio.wait_for(
                 client.chat(
-                    model=actual_model,
+                    model=model,
                     messages=messages,
                     tools=tools,
                     options={
-                        "temperature": 0.7,
-                        "top_k": 50,
-                        "top_p": 0.95
+                        "temperature": 0.6 if thinking_mode else 0.7,
+                        "top_p": 0.95 if thinking_mode else 0.8,
+                        "top_k": 20,
+                        "min_p": 0
                     }
                 ),
                 timeout=timeout
             )
-            
-            # Convert the response to a serializable dict
             serializable_response = {}
-            
-            # Extract message content
             if hasattr(response, 'message'):
                 message = response.message
                 serializable_message = {"role": "assistant"}
-                
-                # Add content if present
                 if hasattr(message, 'content'):
-                    serializable_message["content"] = message.content
+                    # Remove <think>...</think> tags if present
+                    content = re.sub(r'<think>.*?</think>', '', message.content, flags=re.DOTALL).strip()
+                    serializable_message["content"] = content
                 else:
                     serializable_message["content"] = ""
-                
-                # Add tool calls if present
                 if hasattr(message, 'tool_calls') and message.tool_calls:
                     tool_calls = []
                     for tool_call in message.tool_calls:
@@ -196,36 +208,30 @@ async def generate_with_tools(
                             }
                         }
                         tool_calls.append(serialized_tool)
-                    
                     serializable_message["tool_calls"] = tool_calls
-                
                 serializable_response["message"] = serializable_message
-            
-            # Extract model info
             if hasattr(response, 'model'):
                 serializable_response["model"] = response.model
             else:
-                serializable_response["model"] = actual_model
-            
+                serializable_response["model"] = model
             if verbose:
-                print(f"Actual model name: {serializable_response.get('model', actual_model)}")
+                print(f"Actual model name: {serializable_response.get('model', model)}")
                 if serializable_response.get("message", {}).get("tool_calls"):
                     print(f"Tool calls detected: {len(serializable_response['message']['tool_calls'])}")
-            
             return serializable_response
         except TypeError as e:
-            # For backward compatibility with older ollama versions that return dicts directly
             if isinstance(response, dict):
                 if verbose:
                     print("Response is already a dict, using directly")
+                # Remove <think>...</think> tags if present
+                if "message" in response and "content" in response["message"]:
+                    response["message"]["content"] = re.sub(r'<think>.*?</think>', '', response["message"]["content"], flags=re.DOTALL).strip()
                 return response
             else:
                 raise e
-        
     except asyncio.TimeoutError:
         logging.error(f"Request timed out after {timeout} seconds")
         return {"message": {"content": f"I'm sorry, but I took too long to respond. Could you try again?"}}
-        
     except Exception as e:
         logging.error(f"Error generating response with tools: {str(e)}")
         return {"message": {"content": f"Error generating response: {str(e)}"}}
@@ -251,7 +257,7 @@ async def execute_tool_calls(
     for tool in tool_calls:
         function_name = tool["function"]["name"]
         function_args = tool["function"]["arguments"]
-        
+
         # Try to parse arguments as JSON if it's a string,
         # or use directly if it's already a dictionary
         args_dict = {}
@@ -276,18 +282,19 @@ async def execute_tool_calls(
                 "content": "Error: Invalid function arguments format"
             })
             continue
-            
+
         # Check if function exists
-        if function := available_functions.get(function_name):
+        function = available_functions.get(function_name)
+        if function:
             try:
                 # Call the function with arguments
                 logging.info(f"Calling function: {function_name} with args: {args_dict}")
                 result = function(**args_dict)
-                
+
                 # Handle async functions
                 if asyncio.iscoroutine(result):
                     result = await result
-                
+
                 # Convert result to string if it's a dict or other complex type
                 if isinstance(result, (dict, list)):
                     # Log the raw result for debugging
@@ -295,19 +302,23 @@ async def execute_tool_calls(
                     result_str = json.dumps(result, ensure_ascii=False)
                 else:
                     result_str = str(result)
-                
+
+                # Remove <think>...</think> tags if present in tool result
+                if isinstance(result_str, str):
+                    result_str = re.sub(r'<think>.*?</think>', '', result_str, flags=re.DOTALL).strip()
+
                 # Log the formatted result
                 logging.debug(f"Formatted tool result: {result_str}")
-                
+
                 tool_results.append({
                     "role": "tool",
                     "name": function_name,
                     "content": result_str
                 })
-                
+
                 # Log tool result added to conversation for debugging
                 logging.info(f"Tool {function_name} completed successfully with result type: {type(result_str)}")
-                
+
             except Exception as e:
                 error_message = f"Error executing function {function_name}: {str(e)}"
                 logging.error(error_message)
@@ -323,7 +334,6 @@ async def execute_tool_calls(
                 "name": function_name,
                 "content": "Error: Function not found"
             })
-            
     return tool_results
 
 async def list_available_models() -> List[str]:
