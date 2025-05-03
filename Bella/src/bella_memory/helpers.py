@@ -13,7 +13,7 @@ class SelfUserRelationExtractor:
         """
         from llm.config_manager import ModelConfig
         if qwen_size is None:
-            qwen_size = "S"
+            qwen_size = "XXS"
         if model is None:
             model = ModelConfig().get_model_config(qwen_size).get("name", "Lexi:latest")
         subject = "Bella" if perspective == "self" else "David"
@@ -76,7 +76,7 @@ class MemoryClassifier:
         """
         from llm.config_manager import ModelConfig
         if qwen_size is None:
-            qwen_size = "XS"
+            qwen_size = "XXS"
         if model is None:
             model = ModelConfig().get_model_config(qwen_size).get("name", "Lexi:latest")
         prompt = (
@@ -179,7 +179,7 @@ class TopicExtractor:
         """Extract key topics from the input text using Qwen LLM."""
         from llm.config_manager import ModelConfig
         if qwen_size is None:
-            qwen_size = "XS"
+            qwen_size = "XXS"
         if model is None:
             model = ModelConfig().get_model_config(qwen_size).get("name", "Lexi:latest")
         prompt = (
@@ -203,7 +203,7 @@ class ImportanceScorer:
         """
         from llm.config_manager import ModelConfig
         if qwen_size is None:
-            qwen_size = "XS"
+            qwen_size = "XXS"
         if model is None:
             model = ModelConfig().get_model_config(qwen_size).get("name", "Lexi:latest")
         prompt = (
