@@ -10,7 +10,7 @@ import re
 import logging
 import asyncio
 from typing import Dict, Any, List, Optional, Union
-
+import pprint
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, 
@@ -169,6 +169,10 @@ async def generate_with_tools(
             messages.extend(history)
         if prompt:
             messages.append({"role": "user", "content": prompt})
+
+        print("\n--- ACTUAL LLM PROMPT ---")
+        pprint.pprint(messages)
+        print("--- END PROMPT ---\n")
 
         client = ollama.AsyncClient()
         try:

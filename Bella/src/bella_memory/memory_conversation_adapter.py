@@ -10,11 +10,11 @@ from typing import Dict, List, Any, Optional, Tuple, Union
 
 
 # Use the new BellaMemory system
-from src.bella_memory.core import BellaMemory
-from src.bella_memory.helpers import Summarizer, TopicExtractor, ImportanceScorer, MemoryClassifier
-from src.bella_memory.storage import MemoryStorage
-from src.bella_memory.embeddings import EmbeddingModel
-from src.bella_memory.vector_db import VectorDB
+from bella_memory.core import BellaMemory
+from bella_memory.helpers import Summarizer, TopicExtractor, ImportanceScorer, MemoryClassifier
+from bella_memory.storage import MemoryStorage
+from bella_memory.embeddings import EmbeddingModel
+from bella_memory.vector_db import VectorDB
 
 class MemoryConversationAdapter:
     """Adapter for using BellaMemory in conversations (refactored for new API)."""
@@ -91,25 +91,49 @@ class MemoryConversationAdapter:
             await self.flush_memory_buffer()
             return
         # Condition 3: Any very important memory
-        if any(m["importance"] >= self.buffer_importance_threshold for m in self.memory_buffer):
+        if any(m.get("importance", 0.0) >= self.buffer_importance_threshold for m in self.memory_buffer):
             await self.flush_memory_buffer()
             return
 
     async def flush_memory_buffer(self):
-        """Flush (save) all buffered memories above importance threshold and clear the buffer (non-blocking)."""
+        """Flush (save) buffered memories as a single chunk if above importance threshold, with efficient classification and summarization."""
         if not self.memory_buffer:
             return
-        # Only store memories with importance >= threshold
-        memories_to_store = [mem for mem in self.memory_buffer if mem.get("importance", 0.8) >= self.buffer_importance_threshold]
-        for mem in memories_to_store:
-            try:
-                asyncio.create_task(self.bella_memory.store_memory(mem["content"], mem["user_context"]))
-            except Exception as e:
-                logging.error(f"Error launching background memory save: {e}")
+        # Concatenate all buffered turns into one chunk
+        chunk = "\n".join(mem["content"] for mem in self.memory_buffer)
+        # Use the max importance of the buffer (or rescore the chunk if you prefer)
+        importance = max(mem.get("importance", 0.0) for mem in self.memory_buffer)
+        if importance < self.buffer_importance_threshold:
+            self.memory_buffer.clear()
+            return
+        try:
+            # Run classifier and topic extractor on the chunk
+            categories = await self.bella_memory.memory_classifier.classify(chunk)
+            topics = await self.bella_memory.topic_extractor.extract(chunk)
+            summary = None
+            # Summarize for self/user, otherwise always run general summary
+            if "self" in categories:
+                summary = await self.bella_memory.summarizer.summarize_self_insight(chunk)
+            elif "user" in categories:
+                summary = await self.bella_memory.summarizer.summarize_user_observation(chunk)
+            else:
+                summary = await self.bella_memory.summarizer.summarize(chunk)
+            # Use the user_context from the last memory in the buffer (or merge if needed)
+            user_context = self.memory_buffer[-1].get("user_context", {})
+            # Save the chunk as a single memory (await for test determinism)
+            await self.bella_memory.store_memory(
+                chunk,
+                user_context,
+                summary=summary,
+                categories=categories,
+                topics=topics
+            )
+            logging.info(
+                f"Flushed memory buffer (stored 1 chunk, importance {importance}, categories {categories})."
+            )
+        except Exception as e:
+            logging.error(f"Error during bulk memory flush: {e}")
         self.memory_buffer.clear()
-        logging.info(
-            f"Flushed memory buffer (stored {len(memories_to_store)} memories above importance threshold {self.buffer_importance_threshold})."
-        )       
     def add_to_history(self, user_input: str, assistant_response: str) -> None:
         """Add a conversation turn to the history.
         

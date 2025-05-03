@@ -4,6 +4,7 @@ Async Markdown/YAML file I/O for Bella's memory system.
 """
 
 from typing import Dict, Any
+import uuid
 
 import aiofiles
 import yaml
@@ -42,6 +43,7 @@ class MemoryStorage:
         Returns:
             str: The file path of the saved memory.
         """
+
         # Use timestamp and topic for filename
         timestamp = metadata.get("timestamp") or datetime.utcnow().isoformat()
         topics = metadata.get("topics", [])

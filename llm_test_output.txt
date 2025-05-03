@@ -1,0 +1,110 @@
+============================= test session starts ==============================
+platform linux -- Python 3.11.11, pytest-8.3.5, pluggy-1.5.0 -- /home/theww/miniconda3/envs/bella/bin/python
+cachedir: .pytest_cache
+rootdir: /media/theww/AI/Code/AI/Bella
+plugins: anyio-4.9.0, asyncio-0.26.0
+asyncio: mode=Mode.STRICT, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 5 items
+
+tests/memory/test_self_user_relation_extractor.py::test_self_user_relation_extractor[Bella: I felt proud after finishing the marathon. It made me realize how determined I can be when I set my mind to something.-self-expected0] 
+[LLM RAW OUTPUT]
+Prompt:
+You are Bella. From the following text, extract all of Bella's thoughts and feelings as structured pairs.
+For each, return: type (thinks_that/feels/wants/cares_about), value (the thought/feeling as a short phrase).
+Format: type | value. One per line.
+Examples:
+- thinks_that | I am always learning.
+- feels | proud
+- wants | to help David
+- cares_about | clarity
+
+Bella: I felt proud after finishing the marathon. It made me realize how determined I can be when I set my mind to something.
+Result:
+- feels | proud  
+- thinks_that | I am determined when I set my mind to something
+
+
+[EXTRACTOR] Perspective: self
+Input: Bella: I felt proud after finishing the marathon. It made me realize how determined I can be when I set my mind to something.
+Triples: [{'subject': 'Bella', 'type': '- feels', 'value': 'proud'}, {'subject': 'Bella', 'type': '- thinks_that', 'value': 'I am determined when I set my mind to something'}]
+
+PASSED
+tests/memory/test_self_user_relation_extractor.py::test_self_user_relation_extractor[David: I think AI will change the world. Bella: David seems very optimistic about technology.-user-expected1] 
+[LLM RAW OUTPUT]
+Prompt:
+You are Bella. From the following text, extract all of David's thoughts and feelings as structured pairs.
+Focus on what David seems to think, feel, want, or care about, as inferred from the text.
+For each, return: type (thinks_that/feels/wants/cares_about), value (the thought/feeling as a short phrase).
+Format: type | value. One per line.
+Examples:
+- thinks_that | AI will change the world.
+- feels | optimistic
+- wants | Bella to succeed
+- cares_about | Bella's confidence
+
+David: I think AI will change the world. Bella: David seems very optimistic about technology.
+Result:
+- thinks_that | AI will change the world  
+- feels | optimistic  
+- cares_about | technology
+
+
+[EXTRACTOR] Perspective: user
+Input: David: I think AI will change the world. Bella: David seems very optimistic about technology.
+Triples: [{'subject': 'David', 'type': '- thinks_that', 'value': 'AI will change the world'}, {'subject': 'David', 'type': '- feels', 'value': 'optimistic'}, {'subject': 'David', 'type': '- cares_about', 'value': 'technology'}]
+
+PASSED
+tests/memory/test_self_user_relation_extractor.py::test_self_user_relation_extractor[Bella: I feel nervous about the presentation. David: You'll do great! Bella: Thanks, your support helps me feel more confident.-self-expected2] 
+[LLM RAW OUTPUT]
+Prompt:
+You are Bella. From the following text, extract all of Bella's thoughts and feelings as structured pairs.
+For each, return: type (thinks_that/feels/wants/cares_about), value (the thought/feeling as a short phrase).
+Format: type | value. One per line.
+Examples:
+- thinks_that | I am always learning.
+- feels | proud
+- wants | to help David
+- cares_about | clarity
+
+Bella: I feel nervous about the presentation. David: You'll do great! Bella: Thanks, your support helps me feel more confident.
+Result:
+- feels | nervous  
+- feels | confident  
+- thinks_that | I need support  
+- cares_about | confidence
+
+
+[EXTRACTOR] Perspective: self
+Input: Bella: I feel nervous about the presentation. David: You'll do great! Bella: Thanks, your support helps me feel more confident.
+Triples: [{'subject': 'Bella', 'type': '- feels', 'value': 'nervous'}, {'subject': 'Bella', 'type': '- feels', 'value': 'confident'}, {'subject': 'Bella', 'type': '- thinks_that', 'value': 'I need support'}, {'subject': 'Bella', 'type': '- cares_about', 'value': 'confidence'}]
+
+PASSED
+tests/memory/test_self_user_relation_extractor.py::test_self_user_relation_extractor[Bella: I feel nervous about the presentation. David: You'll do great! Bella: Thanks, your support helps me feel more confident.-user-expected3] 
+[LLM RAW OUTPUT]
+Prompt:
+You are Bella. From the following text, extract all of David's thoughts and feelings as structured pairs.
+Focus on what David seems to think, feel, want, or care about, as inferred from the text.
+For each, return: type (thinks_that/feels/wants/cares_about), value (the thought/feeling as a short phrase).
+Format: type | value. One per line.
+Examples:
+- thinks_that | AI will change the world.
+- feels | optimistic
+- wants | Bella to succeed
+- cares_about | Bella's confidence
+
+Bella: I feel nervous about the presentation. David: You'll do great! Bella: Thanks, your support helps me feel more confident.
+Result:
+- feels | nervous  
+- thinks_that | Bella will do great  
+- cares_about | Bella's confidence  
+- wants | Bella to succeed
+
+
+[EXTRACTOR] Perspective: user
+Input: Bella: I feel nervous about the presentation. David: You'll do great! Bella: Thanks, your support helps me feel more confident.
+Triples: [{'subject': 'David', 'type': '- feels', 'value': 'nervous'}, {'subject': 'David', 'type': '- thinks_that', 'value': 'Bella will do great'}, {'subject': 'David', 'type': '- cares_about', 'value': "Bella's confidence"}, {'subject': 'David', 'type': '- wants', 'value': 'Bella to succeed'}]
+
+PASSED
+tests/memory/test_self_user_relation_extractor.py::test_memory_graph_add_and_query PASSED
+
+============================== 5 passed in 1.84s ===============================

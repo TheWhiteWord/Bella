@@ -1,9 +1,6 @@
 import pytest
 import asyncio
 from bella_memory.helpers import Summarizer, TopicExtractor, ImportanceScorer, MemoryClassifier
-import sys
-import os
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../../')))
 
 TEST_CASES = [
     # 1. Long, low-level philosophy discussion
@@ -45,34 +42,65 @@ TEST_CASES = [
     ),
 ]
 
+import os
+RESULTS_FILE = os.path.join(os.path.dirname(__file__), "bella_helpers_llm_outputs.txt")
+
+def log_llm_result(section, text, result):
+    with open(RESULTS_FILE, "a", encoding="utf-8") as f:
+        f.write(f"\n[{section}]\nInput: {text}\nOutput: {result}\n")
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("text", TEST_CASES)
-async def test_summarizer(text):
-    summarizer = Summarizer(model_size="XS", thinking_mode=True)
+async def test_summarizer_actual(text):
+    summarizer = Summarizer(model_size="XXS", thinking_mode=False)
     summary = await summarizer.summarize(text)
+    log_llm_result("SUMMARIZER", text, summary)
     print(f"\n[SUMMARIZER]\nInput: {text}\nSummary: {summary}\n")
     assert isinstance(summary, str)
-    # Accept empty summary only for empty input
     if text.strip():
         assert len(summary) > 0
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("text", TEST_CASES)
-async def test_topic_extractor(text):
-    extractor = TopicExtractor(model_size="XS", thinking_mode=True)
+async def test_topic_extractor_actual(text):
+    extractor = TopicExtractor(model_size="XXS", thinking_mode=False)
     topics = await extractor.extract(text)
+    log_llm_result("TOPIC EXTRACTOR", text, topics)
     print(f"\n[TOPIC EXTRACTOR] Input: {text}\nTopics: {topics}\n")
     assert isinstance(topics, list)
     assert all(isinstance(t, str) for t in topics)
-    # Accept empty topics only for empty or trivial input
     if text.strip() and "weather" not in text:
         assert len(topics) > 0
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("text", TEST_CASES)
-async def test_importance_scorer(text):
-    scorer = ImportanceScorer(model_size="XS", thinking_mode=True)
+async def test_importance_scorer_actual(text):
+    scorer = ImportanceScorer(model_size="XXS", thinking_mode=False)
     score = await scorer.score(text)
+    log_llm_result("IMPORTANCE SCORER", text, score)
     print(f"\n[IMPORTANCE SCORER] Input: {text}\nImportance score: {score}\n")
     assert isinstance(score, float)
     assert 0.0 <= score <= 1.0
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("text", TEST_CASES)
+async def test_summarize_self_insight(text):
+    summarizer = Summarizer(model_size="XXS", thinking_mode=False)
+    summary = await summarizer.summarize_self_insight(text)
+    log_llm_result("SELF INSIGHT", text, summary)
+    print(f"\n[SELF INSIGHT]\nInput: {text}\nSelf Insight: {summary}\n")
+    assert isinstance(summary, str)
+    if text.strip():
+        assert len(summary) > 0
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("text", TEST_CASES)
+async def test_summarize_user_observation(text):
+    summarizer = Summarizer(model_size="XXS", thinking_mode=False)
+    summary = await summarizer.summarize_user_observation(text)
+    log_llm_result("USER OBSERVATION", text, summary)
+    print(f"\n[USER OBSERVATION]\nInput: {text}\nUser Observation: {summary}\n")
+    assert isinstance(summary, str)
+    if text.strip():
+        assert len(summary) > 0
+

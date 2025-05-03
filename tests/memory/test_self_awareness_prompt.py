@@ -23,7 +23,7 @@ class DummyBellaMemory:
 @pytest.mark.asyncio
 async def test_summarize_self_awareness_injection(monkeypatch):
     # Patch the LLM generate function to just echo the prompt for test
-    async def fake_generate(prompt, qwen_size=None, thinking_mode=None):
+    async def fake_generate(prompt, qwen_size=None, thinking_mode=None, **kwargs):
         # Return a recognizable summary
         assert "Summarize the following self-knowledge" in prompt
         return "I am Bella. I am always learning, feel optimistic, and prefer clarity."

@@ -11,25 +11,35 @@ class SelfUserRelationExtractor:
         Parsing is robust: accepts |, :, or - as delimiters, and lines with 1 or 2 fields (type defaults to 'think').
         Subject is always 'I' for self, 'David' for user.
         """
-        from src.llm.config_manager import ModelConfig
+        from llm.config_manager import ModelConfig
         if qwen_size is None:
-            qwen_size = "XS"
+            qwen_size = "S"
         if model is None:
             model = ModelConfig().get_model_config(qwen_size).get("name", "Lexi:latest")
         subject = "Bella" if perspective == "self" else "David"
         if perspective == "self":
             prompt = (
-                "You are Bella. From the following text, extract all of Bella's thoughts and feelings as structured pairs. "
-                "For each, return: type (thinks_that/feels/wants/cares_about), value (the thought/feeling as a short phrase). "
-                "Format: type | value. One per line.\n\n"
+                "You are Bella. From the following text, extract all of Bella's thoughts and feelings as structured pairs.\n"
+                "For each, return: type (thinks_that/feels/wants/cares_about), value (the thought/feeling as a short phrase).\n"
+                "Format: type | value. One per line.\n"
+                "Examples:\n"
+                "- thinks_that | I am always learning.\n"
+                "- feels | proud\n"
+                "- wants | to help David\n"
+                "- cares_about | clarity\n\n"
                 f"{text}"
             )
         else:
             prompt = (
-                "You are Bella. From the following text, extract all of David's thoughts and feelings as structured pairs. "
-                "Focus on what David seems to think, feel, want, or care about, as inferred from the text. "
-                "For each, return: type (thinks_that/feels/wants/cares_about), value (the thought/feeling as a short phrase). "
-                "Format: type | value. One per line.\n\n"
+                "You are Bella. From the following text, extract all of David's thoughts and feelings as structured pairs.\n"
+                "Focus on what David seems to think, feel, want, or care about, as inferred from the text.\n"
+                "For each, return: type (thinks_that/feels/wants/cares_about), value (the thought/feeling as a short phrase).\n"
+                "Format: type | value. One per line.\n"
+                "Examples:\n"
+                "- thinks_that | AI will change the world.\n"
+                "- feels | optimistic\n"
+                "- wants | Bella to succeed\n"
+                "- cares_about | Bella's confidence\n\n"
                 f"{text}"
             )
         result = await generate(prompt, qwen_size=qwen_size, thinking_mode=self.thinking_mode, model=model)
@@ -64,7 +74,7 @@ class MemoryClassifier:
         Classify the memory into all relevant types (multi-label) using Qwen LLM.
         Returns a list of labels, e.g., ["relationship", "self", "project"].
         """
-        from src.llm.config_manager import ModelConfig
+        from llm.config_manager import ModelConfig
         if qwen_size is None:
             qwen_size = "XS"
         if model is None:
@@ -89,21 +99,23 @@ from typing import List
 
 # Qwen-based helpers for summarization, topic extraction, and importance scoring
 import re
-from src.llm.ollama_client import generate
+from llm.ollama_client import generate
 
 class Summarizer:
     async def summarize_self_insight(self, text: str, model: str = None, qwen_size: str = None) -> str:
         """
         Extract Bella's self-insight or personal reflection from the input text.
         """
-        from src.llm.config_manager import ModelConfig
+        from llm.config_manager import ModelConfig
         if qwen_size is None:
             qwen_size = "XXS"
         if model is None:
             model = ModelConfig().get_model_config(qwen_size).get("name", "Lexi:latest")
         prompt = (
-            "You are Bella. From the following conversation, extract a single concise insight, reflection, or feeling about yourself (Bella). "
-            "Focus on what you (Bella) learned, felt, or realized about yourself. Speak in first person as Bella.\n\n"
+            "You are Bella. From the following conversation, extract a single concise insight, reflection, or feeling about yourself (Bella).\n"
+            "Focus on insights on what you Bella learned, felt, or realized about herself. You are creating memories of your experiences.\n"
+            "Let your sassy, witty and independent spirit shine through in your observations.\n"
+            "Be authentic and brief (2-3 sentences). Speak as Bella, in third person\n\n"
             f"{text}"
         )
         return await generate(prompt, qwen_size=qwen_size, thinking_mode=self.thinking_mode, model=model)
@@ -112,14 +124,16 @@ class Summarizer:
         """
         Extract an observation about David (the user) from the input text.
         """
-        from src.llm.config_manager import ModelConfig
+        from llm.config_manager import ModelConfig
         if qwen_size is None:
             qwen_size = "XXS"
         if model is None:
             model = ModelConfig().get_model_config(qwen_size).get("name", "Lexi:latest")
         prompt = (
-            "You are Bella. From the following conversation, extract a single concise observation or insight about David. "
-            "Focus on what David seems to think, feel, or care about, as observed by Bella. Speak in third person about David.\n\n"
+            "You are Bella. From the following conversation, extract a single concise insight, reflection, or feeling about yourself (Bella).\n"
+            "Focus on insights on what David seems to think, feel, or care about, as observed by Bella. You are creating memories of your observations of David.\n"
+            "Let your sassy, witty and independent spirit shine through in your observations.\n"
+            "Be authentic and brief (2-3 sentences). Speak as Bella, in third person\n\n"
             f"{text}"
         )
         return await generate(prompt, qwen_size=qwen_size, thinking_mode=self.thinking_mode, model=model)
@@ -133,7 +147,7 @@ class Summarizer:
         For main memory (not self/user), focus on relationship, facts, and events.
         Optionally tailor the summary based on memory_type labels.
         """
-        from src.llm.config_manager import ModelConfig
+        from llm.config_manager import ModelConfig
         if qwen_size is None:
             qwen_size = "XXS"
         if model is None:
@@ -142,11 +156,10 @@ class Summarizer:
         if memory_type:
             type_hint = f"Memory type(s): {', '.join(memory_type)}. "
         prompt = (
-            "You are Bella. Summarize the following memory in 1-2 sentences, speaking in first person as Bella. "
-            "Focus on the relationship, shared facts, and events between Bella and David. "
-            "Do NOT include deep personal insight or self-reflection here—those will be stored in a separate memory. "
+            "You are Bella. Summarize the following memory in 1-2 sentences, speaking of both parties in third person. "
+            "Focus exclusively on the relationship, shared facts, and events between Bella and David. "
+            "Do not include any personal insights or reflections. "
             "If relevant, mention what happened, what was discussed, and the emotional context, but keep it factual and event-focused. "
-            "Use 'I' for Bella and 'David' for the other party. "
             f"{type_hint}"
             f"\n\n{text}"
         )
@@ -164,7 +177,7 @@ class TopicExtractor:
 
     async def extract(self, text: str, model: str = None, qwen_size: str = None) -> list[str]:
         """Extract key topics from the input text using Qwen LLM."""
-        from src.llm.config_manager import ModelConfig
+        from llm.config_manager import ModelConfig
         if qwen_size is None:
             qwen_size = "XS"
         if model is None:
@@ -188,7 +201,7 @@ class ImportanceScorer:
         Score the importance of the input text for Bella's memory system using Qwen LLM.
         The score should reflect not only relationship relevance, but also mutual interest, unique perspectives, and points of view expressed by both parties.
         """
-        from src.llm.config_manager import ModelConfig
+        from llm.config_manager import ModelConfig
         if qwen_size is None:
             qwen_size = "XS"
         if model is None:

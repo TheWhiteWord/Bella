@@ -41,13 +41,22 @@ TEST_CASES = [
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("text,perspective,expected", TEST_CASES)
-async def test_self_user_relation_extractor(text, perspective, expected):
-    extractor = SelfUserRelationExtractor(model_size="XS", thinking_mode=True)
+async def test_self_user_relation_extractor(text, perspective, expected, monkeypatch):
+    # Wrap the generate function to print prompt and result
+    from bella_memory import helpers
+    orig_generate = helpers.generate
+
+    async def debug_generate(prompt, *args, **kwargs):
+        result = await orig_generate(prompt, *args, **kwargs)
+        print(f"\n[LLM RAW OUTPUT]\nPrompt:\n{prompt}\nResult:\n{result}\n")
+        return result
+
+    monkeypatch.setattr(helpers, "generate", debug_generate)
+
+    extractor = SelfUserRelationExtractor(model_size="XXS", thinking_mode=False)
     triples = await extractor.extract(text, perspective=perspective)
     print(f"\n[EXTRACTOR] Perspective: {perspective}\nInput: {text}\nTriples: {triples}\n")
     assert isinstance(triples, list)
-    # For demonstration, just check that at least one expected triple is present (LLM output may vary)
-    # Looser: just check that for each expected triple, there is a triple with the same type and at least one keyword from the value
     for exp in expected:
         found = any(
             exp["subject"].lower() == t["subject"].lower()

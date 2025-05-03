@@ -91,7 +91,7 @@ class BellaMemory:
         self_present = "self" in memory_type
         user_present = "user" in memory_type
 
-        memory_ids = []
+        file_paths = []
 
         # Store main memory (all non-self/user labels)
         if main_labels:
@@ -124,7 +124,7 @@ class BellaMemory:
                 for k, v in {**metadata, "file_path": file_path}.items()
             }
             await self.vector_db.add_memory(embedding, chroma_metadata)
-            memory_ids.append(memory_id)
+            file_paths.append(file_path)
 
         # Store self memory (if present)
         if self_present:
@@ -159,7 +159,7 @@ class BellaMemory:
             # --- Extract and store self triples ---
             triples = await self.relation_extractor.extract(content, perspective="self")
             self.memory_graph.add_triples(triples, perspective="self", memory_id=memory_id)
-            memory_ids.append(memory_id)
+            file_paths.append(file_path)
 
         # Store user memory (if present)
         if user_present:
@@ -194,9 +194,9 @@ class BellaMemory:
             # --- Extract and store user triples ---
             triples = await self.relation_extractor.extract(content, perspective="user")
             self.memory_graph.add_triples(triples, perspective="user", memory_id=memory_id)
-            memory_ids.append(memory_id)
+            file_paths.append(file_path)
 
-        return memory_ids
+        return file_paths
 
     async def search_memories(self, query: str, top_k: int = 5) -> List[Dict[str, Any]]:
         """Semantic search for relevant relationship/self memories.
