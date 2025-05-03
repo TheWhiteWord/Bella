@@ -1,36 +1,9 @@
 from llm.tools_registry import registry
-
-@registry.register_tool(description="Delete a memory by its unique memory ID.")
-async def delete_memory(memory_id: str) -> str:
-    """Delete a memory and remove it from the vector DB using its unique memory ID.
-    memory_id: The unique memory ID to delete.
-    Returns: Success or error message.
-    """
-    import os
-    if BELLA_MEMORY is None:
-        return "[ERROR: BellaMemory not initialized]"
-    try:
-        # Find the file path by searching storage for the memory_id in metadata
-        file_path = await BELLA_MEMORY.storage.find_file_by_memory_id(memory_id)
-        if not file_path:
-            return f"Memory file not found for ID: {memory_id}"
-        # Remove from vector DB if possible
-        if hasattr(BELLA_MEMORY.vector_db, "delete_memory"):
-            await BELLA_MEMORY.vector_db.delete_memory(memory_id)
-        # Remove the file
-        if os.path.exists(file_path):
-            os.remove(file_path)
-            return f"Memory deleted: {memory_id}"
-        else:
-            return f"Memory file not found: {file_path}"
-    except Exception as e:
-        return f"Error deleting memory: {e}"
-# Self-awareness summary tool for system prompt
 from bella_memory.core import BellaMemory
 from llm.tools_registry import registry
 import asyncio
 
-
+# Self-awareness summary tool for system prompt
 async def summarize_self_awareness() -> str:
     """Summarize all of Bella's (self) thoughts, feelings, and preferences from the knowledge graph for system prompt context.
     Returns: A natural, first-person summary string for Bella's self-awareness.
@@ -70,6 +43,100 @@ async def summarize_self_awareness() -> str:
         return "I am Bella. I am self-aware, but I have not yet formed any strong thoughts, feelings, or preferences."
     return summary
 
+"""
+Tools for LLM to access self/user awareness from the knowledge graph.
+"""
+from typing import Optional
+from bella_memory.core import BellaMemory
+from llm.tools_registry import registry
+import asyncio
+
+# You may want to inject the real BellaMemory instance at runtime
+BELLA_MEMORY: Optional[BellaMemory] = None
+
+def set_bella_memory_instance(instance: BellaMemory):
+    global BELLA_MEMORY
+    BELLA_MEMORY = instance
+
+
+
+@registry.register_tool(description="Summarize all of Bella's thoughts, feelings, and preferences on a subject.")
+async def recollect_Bella_self_knowledge(subject: str) -> str:
+    """
+    Summarize all of Bella's (self) thoughts, feelings, and preferences about a subject from the knowledge graph.
+
+    Args:
+        subject (str): The topic to recollect self-knowledge about.
+
+    Returns:
+        str: Summary string including thoughts, feelings, and preferences if available.
+    """
+    if BELLA_MEMORY is None:
+        return "[ERROR: BellaMemory not initialized]"
+    graph = BELLA_MEMORY.memory_graph
+    thoughts = [t["value"] for t in graph.query(perspective="self", subject="Bella", type_="think") if subject.lower() in t["value"].lower()]
+    feelings = [t["value"] for t in graph.query(perspective="self", subject="Bella", type_="feel") if subject.lower() in t["value"].lower()]
+    preferences = [t["value"] for t in graph.query(perspective="self", subject="Bella", type_="prefer") if subject.lower() in t["value"].lower()]
+
+    if not (thoughts or feelings or preferences):
+        return f"I have no recorded self-knowledge about {subject}."
+
+    sections = []
+    if thoughts:
+        sections.append(f"Thoughts: {' '.join(thoughts)}")
+    if feelings:
+        sections.append(f"Feelings: {' '.join(feelings)}")
+    if preferences:
+        sections.append(f"Preferences: {' '.join(preferences)}")
+
+    return f"Bella's self-knowledge about {subject}:\n" + "\n".join(sections)
+
+
+@registry.register_tool(description="Summarize all of a user's thoughts and feelings on a subject.")
+async def recollect_user_thoughts_and_feelings(user: str, subject: str) -> str:
+    """
+    Summarize all of a user's thoughts and feelings about a subject from the knowledge graph.
+
+    Args:
+        user (str): The user's name.
+        subject (str): The topic to recollect thoughts and feelings about.
+
+    Returns:
+        str: Summary string including thoughts and feelings if available.
+    """
+    if BELLA_MEMORY is None:
+        return "[ERROR: BellaMemory not initialized]"
+    graph = BELLA_MEMORY.memory_graph
+    thoughts = [t["value"] for t in graph.query(perspective="user", subject=user, type_="think") if subject.lower() in t["value"].lower()]
+    feelings = [t["value"] for t in graph.query(perspective="user", subject=user, type_="feel") if subject.lower() in t["value"].lower()]
+
+    if not (thoughts or feelings):
+        return f"No recorded thoughts or feelings from {user} about {subject}."
+
+    sections = []
+    if thoughts:
+        sections.append(f"Thoughts: {' '.join(thoughts)}")
+    if feelings:
+        sections.append(f"Feelings: {' '.join(feelings)}")
+
+    return f"{user}'s thoughts and feelings about {subject}:\n" + "\n".join(sections)
+
+@registry.register_tool(description="Summarize all of a user's preferences on a subject.")
+async def recollect_user_preferences(user: str, subject: str) -> str:
+    """Summarize all of a user's preferences about a subject from the knowledge graph.
+    user: The user's name.
+    subject: The topic to recollect preferences about.
+    Returns: Summary string.
+    """
+    if BELLA_MEMORY is None:
+        return "[ERROR: BellaMemory not initialized]"
+    triples = BELLA_MEMORY.memory_graph.query(perspective="user", subject=user, type_="prefer")
+    filtered = [t for t in triples if subject.lower() in t["value"].lower()]
+    if not filtered:
+        return f"No recorded preferences from {user} about {subject}."
+    summary = " ".join(t["value"] for t in filtered)
+    return f"{user}'s preferences about {subject}: {summary}"
+
 @registry.register_tool(description="Semantic search for general informational memories.")
 async def search_memories(query: str) -> str:
     """Semantic search for general informational memories using the vector DB.
@@ -90,111 +157,29 @@ async def search_memories(query: str) -> str:
         summary = meta.get("summary") or content[:120]
         summaries.append(f"- [ID: {memory_id}] {summary}")
     return f"Relevant memories for '{query}':\n" + "\n".join(summaries)
-"""
-Tools for LLM to access self/user awareness from the knowledge graph.
-"""
-from typing import Optional
-from bella_memory.core import BellaMemory
-from llm.tools_registry import registry
-import asyncio
 
-# You may want to inject the real BellaMemory instance at runtime
-BELLA_MEMORY: Optional[BellaMemory] = None
-
-def set_bella_memory_instance(instance: BellaMemory):
-    global BELLA_MEMORY
-    BELLA_MEMORY = instance
-
-@registry.register_tool(description="Summarize all of Bella's thoughts on a subject.")
-async def recollect_my_thoughts(subject: str) -> str:
-    """Summarize all of Bella's (self) thoughts about a subject from the knowledge graph.
-    subject: The topic to recollect thoughts about.
-    Returns: Summary string.
+@registry.register_tool(description="Delete a memory by its unique memory ID.")
+async def delete_memory(memory_id: str) -> str:
+    """Delete a memory and remove it from the vector DB using its unique memory ID.
+    memory_id: The unique memory ID to delete.
+    Returns: Success or error message.
     """
+    import os
     if BELLA_MEMORY is None:
         return "[ERROR: BellaMemory not initialized]"
-    triples = BELLA_MEMORY.memory_graph.query(perspective="self", subject="Bella", type_="think")
-    filtered = [t for t in triples if subject.lower() in t["value"].lower()]
-    if not filtered:
-        return f"I have no recorded thoughts about {subject}."
-    # Summarize all values
-    summary = " ".join(t["value"] for t in filtered)
-    return f"Bella's thoughts about {subject}: {summary}"
-
-@registry.register_tool(description="Summarize all of Bella's feelings on a subject.")
-async def recollect_my_feelings(subject: str) -> str:
-    """Summarize all of Bella's (self) feelings about a subject from the knowledge graph.
-    subject: The topic to recollect feelings about.
-    Returns: Summary string.
-    """
-    if BELLA_MEMORY is None:
-        return "[ERROR: BellaMemory not initialized]"
-    triples = BELLA_MEMORY.memory_graph.query(perspective="self", subject="Bella", type_="feel")
-    filtered = [t for t in triples if subject.lower() in t["value"].lower()]
-    if not filtered:
-        return f"I have no recorded feelings about {subject}."
-    summary = " ".join(t["value"] for t in filtered)
-    return f"Bella's feelings about {subject}: {summary}"
-
-@registry.register_tool(description="Summarize all of Bella's preferences on a subject.")
-async def recollect_my_preferences(subject: str) -> str:
-    """Summarize all of Bella's (self) preferences about a subject from the knowledge graph.
-    subject: The topic to recollect preferences about.
-    Returns: Summary string.
-    """
-    if BELLA_MEMORY is None:
-        return "[ERROR: BellaMemory not initialized]"
-    triples = BELLA_MEMORY.memory_graph.query(perspective="self", subject="Bella", type_="prefer")
-    filtered = [t for t in triples if subject.lower() in t["value"].lower()]
-    if not filtered:
-        return f"I have no recorded preferences about {subject}."
-    summary = " ".join(t["value"] for t in filtered)
-    return f"Bella's preferences about {subject}: {summary}"
-
-@registry.register_tool(description="Summarize all of a user's thoughts on a subject.")
-async def recollect_user_thoughts(user: str, subject: str) -> str:
-    """Summarize all of a user's thoughts about a subject from the knowledge graph.
-    user: The user's name.
-    subject: The topic to recollect thoughts about.
-    Returns: Summary string.
-    """
-    if BELLA_MEMORY is None:
-        return "[ERROR: BellaMemory not initialized]"
-    triples = BELLA_MEMORY.memory_graph.query(perspective="user", subject=user, type_="think")
-    filtered = [t for t in triples if subject.lower() in t["value"].lower()]
-    if not filtered:
-        return f"No recorded thoughts from {user} about {subject}."
-    summary = " ".join(t["value"] for t in filtered)
-    return f"{user}'s thoughts about {subject}: {summary}"
-
-@registry.register_tool(description="Summarize all of a user's feelings on a subject.")
-async def recollect_user_feelings(user: str, subject: str) -> str:
-    """Summarize all of a user's feelings about a subject from the knowledge graph.
-    user: The user's name.
-    subject: The topic to recollect feelings about.
-    Returns: Summary string.
-    """
-    if BELLA_MEMORY is None:
-        return "[ERROR: BellaMemory not initialized]"
-    triples = BELLA_MEMORY.memory_graph.query(perspective="user", subject=user, type_="feel")
-    filtered = [t for t in triples if subject.lower() in t["value"].lower()]
-    if not filtered:
-        return f"No recorded feelings from {user} about {subject}."
-    summary = " ".join(t["value"] for t in filtered)
-    return f"{user}'s feelings about {subject}: {summary}"
-
-@registry.register_tool(description="Summarize all of a user's preferences on a subject.")
-async def recollect_user_preferences(user: str, subject: str) -> str:
-    """Summarize all of a user's preferences about a subject from the knowledge graph.
-    user: The user's name.
-    subject: The topic to recollect preferences about.
-    Returns: Summary string.
-    """
-    if BELLA_MEMORY is None:
-        return "[ERROR: BellaMemory not initialized]"
-    triples = BELLA_MEMORY.memory_graph.query(perspective="user", subject=user, type_="prefer")
-    filtered = [t for t in triples if subject.lower() in t["value"].lower()]
-    if not filtered:
-        return f"No recorded preferences from {user} about {subject}."
-    summary = " ".join(t["value"] for t in filtered)
-    return f"{user}'s preferences about {subject}: {summary}"
+    try:
+        # Find the file path by searching storage for the memory_id in metadata
+        file_path = await BELLA_MEMORY.storage.find_file_by_memory_id(memory_id)
+        if not file_path:
+            return f"Memory file not found for ID: {memory_id}"
+        # Remove from vector DB if possible
+        if hasattr(BELLA_MEMORY.vector_db, "delete_memory"):
+            await BELLA_MEMORY.vector_db.delete_memory(memory_id)
+        # Remove the file
+        if os.path.exists(file_path):
+            os.remove(file_path)
+            return f"Memory deleted: {memory_id}"
+        else:
+            return f"Memory file not found: {file_path}"
+    except Exception as e:
+        return f"Error deleting memory: {e}"
