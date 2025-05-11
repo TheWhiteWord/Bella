@@ -84,7 +84,15 @@ class MemoryStorage:
         headings.append(heading("memory_id", metadata.get("memory_id"), level=1))
         headings.append(heading("timestamp", metadata.get("timestamp")))
         headings.append(heading("participants", metadata.get("participants")))
-        headings.append(heading("topics", metadata.get("topics")))
+        # Format topics as Obsidian-style internal links if present
+        topics_val = metadata.get("topics")
+        if topics_val:
+            if isinstance(topics_val, str):
+                topics_val = [topics_val]
+            topics_links = ", ".join(f"[[{t}]]" for t in topics_val)
+        else:
+            topics_links = None
+        headings.append(heading("topics", topics_links))
         headings.append(heading("emotional_tone", metadata.get("emotional_tone")))
         headings.append(heading("summary", metadata.get("summary")))
         headings.append(heading("source", metadata.get("source")))

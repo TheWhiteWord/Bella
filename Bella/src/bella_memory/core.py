@@ -69,14 +69,19 @@ class BellaMemory:
             list[str]: List of unique IDs or file paths of the stored memories.
         """
         # Run helpers in parallel (including multi-label classifier)
+
         topics_task = self.topic_extractor.extract(content)
         importance_task = self.importance_scorer.score(content)
         memory_type_task = self.memory_classifier.classify(content)
         topics, importance, memory_type = await asyncio.gather(
             topics_task, importance_task, memory_type_task
         )
+        print(f"[DEBUG] Extracted topics: {topics}")
+        print(f"[DEBUG] Importance score: {importance}")
+        print(f"[DEBUG] Memory type(s): {memory_type}")
 
         if importance < 0.5:
+            print("[DEBUG] Memory NOT saved: importance below threshold.")
             return []  # Not important enough to store
 
         # Multi-label: allow user_context to override or add to classifier output
@@ -92,6 +97,7 @@ class BellaMemory:
         user_present = "user" in memory_type
 
         file_paths = []
+        memory_saved = False
 
         # Store main memory (all non-self/user labels)
         if main_labels:
@@ -114,7 +120,20 @@ class BellaMemory:
                 metadata["project"] = user_context["project"]
             metadata.update(user_context)
             file_path = await self.storage.save_memory(content, metadata)
-            embedding = await self.embedding_model.generate_embedding(content)
+            # Compose a string with all relevant fields for embedding
+            embedding_input = (
+                f"Content: {content}\n"
+                f"Summary: {metadata.get('summary', '')}\n"
+                f"Topics: {', '.join(metadata.get('topics', []))}\n"
+                f"Participants: {', '.join(metadata.get('participants', []))}\n"
+                f"Emotional Tone: {metadata.get('emotional_tone', '')}\n"
+                f"Timestamp: {metadata.get('timestamp', '')}\n"
+                f"ID: {metadata.get('memory_id', '')}\n"
+                f"Memory Type: {', '.join(metadata.get('memory_type', []))}\n"
+                f"Importance: {metadata.get('importance', '')}\n"
+                f"Source: {metadata.get('source', '')}\n"
+            )
+            embedding = await self.embedding_model.generate_embedding(embedding_input)
             # Sanitize metadata for ChromaDB (no lists)
             chroma_metadata = {
                 k: (
@@ -125,6 +144,7 @@ class BellaMemory:
             }
             await self.vector_db.add_memory(embedding, chroma_metadata)
             file_paths.append(file_path)
+            memory_saved = True
 
         # Store self memory (if present)
         if self_present:
@@ -147,7 +167,20 @@ class BellaMemory:
                 metadata["project"] = user_context["project"]
             metadata.update(user_context)
             file_path = await self.storage.save_memory(content, metadata)
-            embedding = await self.embedding_model.generate_embedding(content)
+            # Compose a string with all relevant fields for embedding
+            embedding_input = (
+                f"Content: {content}\n"
+                f"Summary: {metadata.get('summary', '')}\n"
+                f"Topics: {', '.join(metadata.get('topics', []))}\n"
+                f"Participants: {', '.join(metadata.get('participants', []))}\n"
+                f"Emotional Tone: {metadata.get('emotional_tone', '')}\n"
+                f"Timestamp: {metadata.get('timestamp', '')}\n"
+                f"ID: {metadata.get('memory_id', '')}\n"
+                f"Memory Type: {', '.join(metadata.get('memory_type', []))}\n"
+                f"Importance: {metadata.get('importance', '')}\n"
+                f"Source: {metadata.get('source', '')}\n"
+            )
+            embedding = await self.embedding_model.generate_embedding(embedding_input)
             chroma_metadata = {
                 k: (
                     ", ".join(map(str, v)) if isinstance(v, list)
@@ -160,6 +193,7 @@ class BellaMemory:
             triples = await self.relation_extractor.extract(content, perspective="self")
             self.memory_graph.add_triples(triples, perspective="self", memory_id=memory_id)
             file_paths.append(file_path)
+            memory_saved = True
 
         # Store user memory (if present)
         if user_present:
@@ -182,7 +216,20 @@ class BellaMemory:
                 metadata["project"] = user_context["project"]
             metadata.update(user_context)
             file_path = await self.storage.save_memory(content, metadata)
-            embedding = await self.embedding_model.generate_embedding(content)
+            # Compose a string with all relevant fields for embedding
+            embedding_input = (
+                f"Content: {content}\n"
+                f"Summary: {metadata.get('summary', '')}\n"
+                f"Topics: {', '.join(metadata.get('topics', []))}\n"
+                f"Participants: {', '.join(metadata.get('participants', []))}\n"
+                f"Emotional Tone: {metadata.get('emotional_tone', '')}\n"
+                f"Timestamp: {metadata.get('timestamp', '')}\n"
+                f"ID: {metadata.get('memory_id', '')}\n"
+                f"Memory Type: {', '.join(metadata.get('memory_type', []))}\n"
+                f"Importance: {metadata.get('importance', '')}\n"
+                f"Source: {metadata.get('source', '')}\n"
+            )
+            embedding = await self.embedding_model.generate_embedding(embedding_input)
             chroma_metadata = {
                 k: (
                     ", ".join(map(str, v)) if isinstance(v, list)
@@ -195,7 +242,12 @@ class BellaMemory:
             triples = await self.relation_extractor.extract(content, perspective="user")
             self.memory_graph.add_triples(triples, perspective="user", memory_id=memory_id)
             file_paths.append(file_path)
+            memory_saved = True
 
+        if memory_saved:
+            print(f"[DEBUG] Memory SAVED. File paths: {file_paths}")
+        else:
+            print("[DEBUG] No memory was saved (no main/self/user labels matched).")
         return file_paths
 
     async def search_memories(self, query: str, top_k: int = 5) -> List[Dict[str, Any]]:
@@ -208,15 +260,34 @@ class BellaMemory:
         Returns:
             List[Dict[str, Any]]: List of memory metadata and content.
         """
-        query_embedding = await self.embedding_model.generate_embedding(query)
+        # Only use Topics, Memory Type, Timestamp, ID for semantic search
+        # For the query, we expect a dict or string; if string, treat as topic search
+        # For now, treat query as a string and embed as if it were a composite of those fields
+        embedding_input = (
+            f"Topics: {query}\n"
+            f"Memory Type: {query}\n"
+            f"Timestamp: {query}\n"
+            f"ID: {query}\n"
+        )
+        query_embedding = await self.embedding_model.generate_embedding(embedding_input)
         results = await self.vector_db.query(query_embedding, top_k=top_k)
-        # Optionally load full content for each result
+        # Load only the relevant metadata fields for each result
         for result in results:
             file_path = result.get("file_path")
             if file_path:
                 memory_data = await self.storage.load_memory(file_path)
-                result["content"] = memory_data.get("content")
-                result["metadata"] = memory_data.get("metadata")
+                meta = memory_data.get("metadata", {})
+                # Only keep the relevant metadata fields
+                result["metadata"] = {
+                    "memory_id": meta.get("memory_id", "unknown"),
+                    "summary": meta.get("summary", ""),
+                    "topics": meta.get("topics", []),
+                    "memory_type": meta.get("memory_type", []),
+                    "timestamp": meta.get("timestamp", "")
+                }
+                # Optionally remove content to keep results clean
+                if "content" in result:
+                    del result["content"]
         return results
 
     async def summarize_memory(self, memory_id: str) -> str:

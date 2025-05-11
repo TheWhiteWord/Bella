@@ -170,10 +170,6 @@ async def generate_with_tools(
         if prompt:
             messages.append({"role": "user", "content": prompt})
 
-        print("\n--- ACTUAL LLM PROMPT ---")
-        pprint.pprint(messages)
-        print("--- END PROMPT ---\n")
-
         client = ollama.AsyncClient()
         try:
             response = await asyncio.wait_for(

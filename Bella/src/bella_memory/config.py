@@ -9,6 +9,8 @@ import os
 import yaml
 
 class ConfigLoader:
+    # Default user key for categorizing user memories
+    USER_CATEGORY_KEY = "David"
     """
     Centralized config loader for Bella's memory system (YAML-based).
     Stores paths to prompt YAML files as class variables.

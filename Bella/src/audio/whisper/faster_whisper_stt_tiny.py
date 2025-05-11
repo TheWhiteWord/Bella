@@ -13,33 +13,23 @@ from faster_whisper import WhisperModel
 import asyncio
 from functools import lru_cache
 
-# Define model path - using the remote model ID for reliability
-MODEL_NAME = "tiny"
+# Define model path - use absolute path for local model
+MODEL_NAME = "/media/theww/AI/Code/AI/Bella/Bella/models/whisper/small"
 
 # Initialize model once and cache it
 @lru_cache(maxsize=1)
 def get_whisper_model():
-    """Get or initialize the Whisper model with optimized settings."""
-    try:
-        return WhisperModel(
-            MODEL_NAME,
-            device="cpu",
-            compute_type="int8",  # Use int8 quantization for efficiency
-            cpu_threads=4  # Adjust based on system
-        )
-    except Exception as e:
-        print(f"Error loading model from path, falling back to remote model: {e}")
-        # Fallback to downloading the model from HF
-        return WhisperModel(
-            "Systran/faster-whisper-tiny",
-            device="gpu", 
-            compute_type="int8",
-            cpu_threads=4
-        )
+    """Get or initialize the Whisper model with optimized settings. Only loads from local path."""
+    return WhisperModel(
+        MODEL_NAME,
+        device="cuda",  # Use GPU if available
+        compute_type="int8",  # Use int8 quantization for efficiency
+        cpu_threads=4,  # Adjust based on system
+    )
 
 async def transcribe_audio(audio_file: str) -> str:
-    """Transcribe audio using Whisper tiny model.
-    
+    """Transcribe audio using Whisper small model.
+
     Args:
         audio_file (str): Path to the audio file to transcribe
         

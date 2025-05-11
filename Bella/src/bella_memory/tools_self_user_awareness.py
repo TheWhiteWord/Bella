@@ -74,6 +74,7 @@ async def recollect_Bella_self_knowledge(subject: str) -> str:
     if BELLA_MEMORY is None:
         return "[ERROR: BellaMemory not initialized]"
     graph = BELLA_MEMORY.memory_graph
+    # Always use subject="Bella" and perspective="self"
     thoughts = [t["value"] for t in graph.query(perspective="self", subject="Bella", type_="think") if subject.lower() in t["value"].lower()]
     feelings = [t["value"] for t in graph.query(perspective="self", subject="Bella", type_="feel") if subject.lower() in t["value"].lower()]
     preferences = [t["value"] for t in graph.query(perspective="self", subject="Bella", type_="prefer") if subject.lower() in t["value"].lower()]
@@ -104,14 +105,17 @@ async def recollect_user_thoughts_and_feelings(user: str, subject: str) -> str:
     Returns:
         str: Summary string including thoughts and feelings if available.
     """
+    from bella_memory.config import ConfigLoader
+    user_key = getattr(ConfigLoader, "USER_CATEGORY_KEY", "user")
     if BELLA_MEMORY is None:
         return "[ERROR: BellaMemory not initialized]"
     graph = BELLA_MEMORY.memory_graph
+    # Search with the original user argument, but display with the custom key
     thoughts = [t["value"] for t in graph.query(perspective="user", subject=user, type_="think") if subject.lower() in t["value"].lower()]
     feelings = [t["value"] for t in graph.query(perspective="user", subject=user, type_="feel") if subject.lower() in t["value"].lower()]
 
     if not (thoughts or feelings):
-        return f"No recorded thoughts or feelings from {user} about {subject}."
+        return f"No recorded thoughts or feelings from {user_key} about {subject}."
 
     sections = []
     if thoughts:
@@ -119,7 +123,7 @@ async def recollect_user_thoughts_and_feelings(user: str, subject: str) -> str:
     if feelings:
         sections.append(f"Feelings: {' '.join(feelings)}")
 
-    return f"{user}'s thoughts and feelings about {subject}:\n" + "\n".join(sections)
+    return f"{user_key}'s thoughts and feelings about {subject}:\n" + "\n".join(sections)
 
 @registry.register_tool(description="Summarize all of a user's preferences on a subject.")
 async def recollect_user_preferences(user: str, subject: str) -> str:
@@ -128,35 +132,39 @@ async def recollect_user_preferences(user: str, subject: str) -> str:
     subject: The topic to recollect preferences about.
     Returns: Summary string.
     """
+    from bella_memory.config import ConfigLoader
+    user_key = getattr(ConfigLoader, "USER_CATEGORY_KEY", "user")
     if BELLA_MEMORY is None:
         return "[ERROR: BellaMemory not initialized]"
     triples = BELLA_MEMORY.memory_graph.query(perspective="user", subject=user, type_="prefer")
     filtered = [t for t in triples if subject.lower() in t["value"].lower()]
     if not filtered:
-        return f"No recorded preferences from {user} about {subject}."
+        return f"No recorded preferences from {user_key} about {subject}."
     summary = " ".join(t["value"] for t in filtered)
-    return f"{user}'s preferences about {subject}: {summary}"
+    return f"{user_key}'s preferences about {subject}: {summary}"
 
-@registry.register_tool(description="Semantic search for general informational memories.")
-async def search_memories(query: str) -> str:
-    """Semantic search for general informational memories using the vector DB.
+@registry.register_tool(description="Semantic search for general informational and factual memories.")
+async def search_memories(query: str):
+    """Semantic search for general informational and factual memories using the vector DB.
     query: The search query string.
-    Returns: A summary of the top relevant memories, including their unique memory IDs.
+    Returns: A list of dicts for the top relevant memories, each with summary, topics, memory_type, timestamp, and memory_id.
     """
     if BELLA_MEMORY is None:
-        return "[ERROR: BellaMemory not initialized]"
+        return {"error": "BellaMemory not initialized"}
     results = await BELLA_MEMORY.search_memories(query, top_k=3)
     if not results:
-        return f"No relevant memories found for '{query}'."
-    # Summarize the top results, including memory_id
-    summaries = []
+        return []
+    output = []
     for r in results:
-        content = r.get("content", "")
         meta = r.get("metadata", {})
-        memory_id = meta.get("memory_id", "unknown")
-        summary = meta.get("summary") or content[:120]
-        summaries.append(f"- [ID: {memory_id}] {summary}")
-    return f"Relevant memories for '{query}':\n" + "\n".join(summaries)
+        output.append({
+            "memory_id": meta.get("memory_id", "unknown"),
+            "summary": meta.get("summary", ""),
+            "topics": meta.get("topics", []),
+            "memory_type": meta.get("memory_type", []),
+            "timestamp": meta.get("timestamp", "")
+        })
+    return output
 
 @registry.register_tool(description="Delete a memory by its unique memory ID.")
 async def delete_memory(memory_id: str) -> str:

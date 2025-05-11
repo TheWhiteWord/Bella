@@ -86,11 +86,12 @@ outputs/*.wav
 outputs/
 
 # ChromaDB files
-Bella/memories/chroma_db/**/*.sqlite3
-Bella/memories/chroma_db/**/*.bin
-Bella/memories/chroma_db/**/*/
-Bella/memories/.vector_store.json
-Bella/memories/.memory_stats.json
+memories/chroma_db/**/*.sqlite3
+memories/chroma_db/**/*.bin
+memories/chroma_db/**/*/
+memories/.vector_store.json
+memories/.memory_stats.json
+memories/
 
 # Keep configuration files
 !**/config.json

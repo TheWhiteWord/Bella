@@ -22,7 +22,7 @@ logging.basicConfig(
 
 # Add project root directory to Python path
 project_root = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, project_root)
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "src")))
 
 from src.utility.audio_session_manager import AudioSessionManager
 from src.utility.buffered_recorder import BufferedRecorder, create_audio_stream
