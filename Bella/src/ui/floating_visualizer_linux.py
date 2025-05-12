@@ -22,7 +22,7 @@ import numpy as np
 from PIL import Image, ImageTk
 from typing import Optional, Dict, Tuple, Any
 import numpy as np
-
+from .linux_window_utils import check_compositor
 # Add the project root to the path if needed
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../../')))
 
@@ -132,62 +132,19 @@ class FloatingVisualizer:
     """
     
     def __init__(self, size=400, position=None):
-        """
-        Initialize the floating visualizer.
-        
-        Args:
-            size: Size of the visualizer (diameter in pixels)
-            position: Optional starting position (x, y) on screen
-        """
+        # ... (Initial setup: size, position, title, colors) ...
         self.size = size
         self.position = position or (100, 100)
-        
-        # Set a unique window title for identification
         self.window_title = f"BellaVisualizer-{int(time.time())}"
-        
-        # Special color for transparency - use a very specific shade of magenta
         self.transparency_color = "#FF01FE"
-        
-        # Create main window
+        self.transparency_method = "auto"
+        self.force_alternative_transparency = False
+
+        # --- Create the main Tk window FIRST ---
         self.root = tk.Tk()
-        self.root.title(self.window_title)
-        
-        # Make window borderless
-        self.root.overrideredirect(True)
-        
-        # Position the window
-        self.root.geometry(f"{size}x{size}+{self.position[0]}+{self.position[1]}")
-        
-        # Configure window for Linux window managers
-        self._configure_for_linux_wm()
-        
-        # Configure window transparency
-        self._configure_transparency()
-        
-        # Create a frame container with transparent background
-        self.frame = tk.Frame(self.root, background=self.transparency_color, bd=0, highlightthickness=0)
-        self.frame.pack(fill=tk.BOTH, expand=True)
-        
-        # Add a thin border frame to make dragging easier
-        self._create_drag_border()
-        
-        # Create the audio monitor (mock for now)
-        self.audio_monitor = AudioMonitorMock()
-        
-        # Create the visualizer
-        self.visualizer = None  # Will be initialized later
-        
-        # Track mouse position for dragging
-        self.drag_start_x = 0
-        self.drag_start_y = 0
-        self.window_x = 0
-        self.window_y = 0
-        self.is_dragging = False
-        
-        # Set up right-click context menu
-        self.context_menu = tk.Menu(self.root, tearoff=0)
-        
-        # Control variables
+        # ---------------------------------------
+
+        # --- Define settings variables AFTER root exists ---
         self.settings = {
             'hue_shift_speed': tk.DoubleVar(value=DEFAULT_HUE_SHIFT_SPEED),
             'saturation': tk.DoubleVar(value=DEFAULT_SATURATION_FACTOR),
@@ -195,56 +152,33 @@ class FloatingVisualizer:
             'screen_opacity': tk.DoubleVar(value=0.6),
             'screen_enabled': tk.BooleanVar(value=True),
             'wave_color_enabled': tk.BooleanVar(value=True),
-            'always_on_top': tk.BooleanVar(value=True),  # Default to always on top
+            'always_on_top': tk.BooleanVar(value=True),
         }
-        
-        # Audio simulation
+        # -------------------------------------------------
+
+        # --- Now continue with window configuration ---
+        self.root.title(self.window_title)
+        self.root.overrideredirect(True)
+        self.root.geometry(f"{size}x{size}+{self.position[0]}+{self.position[1]}")
+
+        # Configure window transparency (uses self.settings['always_on_top'])
+        self._configure_transparency()
+
+        # Create frame, border, audio monitor, etc.
+        self.frame = tk.Frame(self.root, background=self.transparency_color, bd=0, highlightthickness=0)
+        self.frame.pack(fill=tk.BOTH, expand=True)
+        self._create_drag_border()
+        self.audio_monitor = AudioMonitorMock()
+        self.visualizer = None
+        self.drag_start_x = 0
+        # ... (rest of __init__) ...
+        self.context_menu = tk.Menu(self.root, tearoff=0)
         self.use_simulated_audio = True
         self.simulation_task = None
-        
-        # Window ID for X11-specific operations
         self.window_id = None
-        
-        # Set up signal handlers for graceful exit
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
     
-    def _configure_for_linux_wm(self):
-        """Apply Linux-specific window manager configurations."""
-        # Set window type - try different types that might work
-        try:
-            # First try 'dock' window type - more likely to be click-through on Linux
-            self.root.attributes("-type", "dock")
-            print("Using dock window type")
-        except Exception as e:
-            print(f"Could not set dock window type: {e}")
-            try:
-                # If 'dock' fails, try 'utility' which is usually borderless too
-                self.root.attributes("-type", "utility")
-                print("Using utility window type")
-            except Exception as e2:
-                print(f"Could not set utility window type: {e2}")
-                try:
-                    # Last resort: dialog type
-                    self.root.attributes("-type", "dialog")
-                    print("Using dialog window type")
-                except Exception as e3:
-                    print(f"Could not set dialog window type: {e3}")
-                
-        # Set window manager class - older method, may work on some WMs
-        try:
-            # This doesn't work with newer Tk versions, but we'll try anyway
-            self.root.attributes("-class", "BellaFloatingVisualizer")
-            print("Set window class via attributes")
-        except Exception as e:
-            print(f"Could not set window class via attributes: {e}")
-            
-        # Try to enforce a borderless appearance
-        try:
-            self.root.attributes("-toolwindow", True)
-            print("Set toolwindow attribute")
-        except Exception as e:
-            print(f"Could not set toolwindow attribute: {e}")
     
     def _create_drag_border(self):
         """Create an invisible border around the window to make dragging easier."""
@@ -276,61 +210,115 @@ class FloatingVisualizer:
             border.bind("<Button-3>", self._show_context_menu)
     
     def _configure_transparency(self):
-        """Configure window transparency for Linux."""
-        # Configure for Linux - use a special color that won't appear in our UI
-        # We'll use a very specific shade of magenta that we can make transparent
-        transparency_color = "#FF01FE"  # Special magenta for transparency
-        
-        # Set background color for root and frame
+        """Configure window transparency for Linux, prioritizing alpha compositing."""
+        transparency_color = self.transparency_color
+
+        # 1. Basic Setup (Borderless, Background color)
+        # Setting the root background color is still important for wm_attributes
         self.root.config(bg=transparency_color)
-        
+        self.root.overrideredirect(True) # Ensure borderless
+
+        # 2. Check for Compositor (Crucial for Alpha)
+        if not check_compositor():
+            print("\n" + "="*40)
+            print("WARNING: No compositor detected!")
+            print("         True transparency effects (alpha channel)")
+            print("         may not work correctly.")
+            print("         Consider installing and running Picom,")
+            print("         or ensure your desktop environment's")
+            print("         compositor is enabled.")
+            print("="*40 + "\n")
+        else:
+            print("Compositor detected, attempting alpha transparency.")
+
+        # 3. Set Always-on-Top (if enabled)
+        always_on_top = self.settings.get('always_on_top', tk.BooleanVar(value=True)).get()
+        self.root.attributes("-topmost", always_on_top)
+
+        # 4. Wait for Window to be Ready
         try:
-            # Wait for window to be visible
-            self.root.wait_visibility(self.root)
-            
-            # Remove window decorations entirely
-            self.root.overrideredirect(True)
-            
-            # Make the window always on top initially
-            self.root.attributes("-topmost", True)
-            
-            # Try different transparency approaches
-            transparency_success = False
-            
-            # Try method 1: transparentcolor with our special color
+            # Wait briefly for the window manager to process the initial setup
+            self.root.update_idletasks()
+            # self.root.wait_visibility() # Sometimes blocks indefinitely, use update instead
+            self.root.update() # Process pending events
+        except tk.TclError:
+            print("Warning: Error during initial window update for transparency.")
+            return # Cannot proceed if window is broken
+
+        # 5. Determine Preferred Window Type
+        desktop_env = os.environ.get('XDG_CURRENT_DESKTOP', 'unknown').upper()
+        using_wayland = os.environ.get('WAYLAND_DISPLAY') is not None
+        print(f"Desktop: {desktop_env}, Display Server: {'Wayland' if using_wayland else 'X11'}")
+
+        # Choose a type known to work well with transparency/compositing
+        # 'dock' often bypasses WM decorations and supports transparency
+        # 'splash' is another good candidate
+        # You might need to experiment here based on your specific WM/DE
+        preferred_type = "dock"
+        if "GNOME" in desktop_env or "CINNAMON" in desktop_env:
+            preferred_type = "splash" # Splash often works better on GNOME/Mutter
+
+        print(f"Attempting transparency using window type: '{preferred_type}'")
+
+        # 6. Attempt Alpha Transparency (Primary Method)
+        transparency_success = False
+        try:
+            # Set the window type *first*
+            self.root.attributes("-type", preferred_type)
+            self.root.update() # Give WM time to process type change
+
+            # Enable alpha channel support via the compositor.
+            # Setting alpha close to 1.0 usually enables the channel without
+            # making the whole window semi-transparent. Per-pixel alpha from
+            # the canvas content should then work.
+            self.root.attributes("-alpha", 0.999) # Use 0.999 or 1.0
+            self.root.update() # Apply changes
+
+            # Check if it seemed to work (this is hard to verify programmatically)
+            # We assume success if no exception occurred.
+            transparency_success = True
+            print(f"Applied alpha channel with window type '{preferred_type}'.")
+
+        except tk.TclError as e:
+            print(f"Alpha channel setup failed with type '{preferred_type}': {e}")
+            # Try resetting type before fallback
             try:
-                self.root.attributes("-transparentcolor", transparency_color)
+                self.root.attributes("-type", "normal")
+                self.root.update()
+            except tk.TclError: pass
+
+        # 7. Fallback: Color Keying (Less Preferred)
+        if not transparency_success:
+            print(f"Attempting fallback: color keying with '{transparency_color}'...")
+            try:
+                # Try setting the specific color as transparent
+                # This requires the root background and canvas background to match this color
+                self.root.wm_attributes("-transparentcolor", transparency_color)
+                self.root.update()
                 transparency_success = True
-                print("Using -transparentcolor method for transparency")
-            except Exception as e:
-                print(f"Could not use transparentcolor: {e}")
-            
-            # Try method 2: shape extension via wm_attributes if available
-            if not transparency_success:
-                try:
-                    # Some window managers support shape mask
-                    self.root.wm_attributes("-type", "splash")  # Override type to splash for borderless
-                    self.root.wm_attributes("-transparentcolor", transparency_color)
-                    transparency_success = True
-                    print("Using wm_attributes method for transparency")
-                except Exception as e:
-                    print(f"Could not use wm_attributes for transparency: {e}")
-            
-            # Try method 3: use X11 window properties if available
-            if self.window_id:
-                try:
-                    # X11 transparency hint
-                    subprocess.run([
-                        "xprop", "-id", self.window_id,
-                        "-f", "_NET_WM_WINDOW_OPACITY", "32c",
-                        "-set", "_NET_WM_WINDOW_OPACITY", "0xf0000000"
-                    ], check=False)
-                    print(f"Applied X11 opacity property to window {self.window_id}")
-                except Exception as e:
-                    print(f"Could not apply X11 properties: {e}")
-                
-        except Exception as e:
-            print(f"Warning: Could not set all transparency attributes: {e}")
+                print("Applied color keying transparency.")
+            except tk.TclError as e:
+                print(f"Color keying failed: {e}")
+
+        # 8. Final Check and Warning
+        if not transparency_success:
+            print("\n" + "*"*40)
+            print("WARNING: Failed to apply transparency.")
+            print("         The background may remain visible.")
+            print("         Ensure a compositor is running and")
+            print("         your graphics drivers are up to date.")
+            print("         You might need to experiment with different")
+            print("         window types ('dock', 'splash', 'utility')")
+            print("         or consult your window manager's documentation.")
+            print("*"*40 + "\n")
+
+        # 9. Apply X11 Fixes (if needed, might conflict, use cautiously)
+        # This might be needed for click-through on some WMs, but can also
+        # interfere with transparency. Apply *after* primary methods.
+        # Consider making this optional via a command-line flag.
+        # self.root.after(200, self._apply_x11_fixes) # Delay slightly
+        print("Skipping automatic _apply_x11_fixes for now, as it might interfere.")
+        print("If click-through fails, you might need to re-enable it or use xprop manually.")
     
     def _signal_handler(self, sig, frame):
         """Handle termination signals."""
@@ -1196,56 +1184,63 @@ class LinuxFloatingVisualizerUI(EnhancedVoiceVisualizerUI):
     
     def _update_ui_frame(self, frame: Image.Image):
         """
-        Update the UI with a new frame image, preserving transparency.
-        
+        Update the UI with a new frame image, preserving transparency using alpha channel.
+
         Args:
-            frame: PIL Image to display
+            frame: PIL Image to display (must be RGBA)
         """
-        if not self.canvas:
+        if not self.canvas or not self.canvas.winfo_exists():
             return
-        
+
         try:
+            # Ensure the frame has an alpha channel if it doesn't
+            if frame.mode != 'RGBA':
+                frame = frame.convert('RGBA')
+
             # Resize the frame if needed
-            if frame.size != self.size:
-                frame = frame.resize(self.size, Image.Resampling.LANCZOS)
-            
-            # For complete transparency, modify the image to use our transparency color for transparent areas
-            if hasattr(self, 'transparency_color'):
-                # Convert transparency_color from hex to RGB
-                tr_color = self.transparency_color.lstrip('#')
-                tr_r, tr_g, tr_b = tuple(int(tr_color[i:i+2], 16) for i in (0, 2, 4))
-                
-                # Create a new RGBA array
-                frame_array = np.array(frame)
-                
-                # Find fully transparent pixels (alpha = 0)
-                transparent_mask = frame_array[:, :, 3] == 0
-                
-                # Apply transparency color to those pixels
-                if np.any(transparent_mask):
-                    frame_array[transparent_mask, 0] = tr_r
-                    frame_array[transparent_mask, 1] = tr_g
-                    frame_array[transparent_mask, 2] = tr_b
-                    frame_array[transparent_mask, 3] = 0  # Keep alpha as 0
-                    
-                    # Create new image from array
-                    frame = Image.fromarray(frame_array, 'RGBA')
-            
-            # Convert PIL image to Tkinter PhotoImage
-            self.current_frame_image = ImageTk.PhotoImage(frame)
-            
+            current_size = (self.canvas.winfo_width(), self.canvas.winfo_height())
+            # Prevent resizing if size is invalid (e.g., during initialization)
+            if current_size[0] <= 1 or current_size[1] <= 1:
+                 # Use the configured size as a fallback during init
+                if frame.size != self.size:
+                     frame = frame.resize(self.size, Image.Resampling.LANCZOS)
+            elif frame.size != current_size:
+                frame = frame.resize(current_size, Image.Resampling.LANCZOS)
+
+            # --- REMOVED THE MANUAL PIXEL REPLACEMENT LOGIC ---
+            # The goal is to let the window manager handle the alpha channel directly.
+            # The frame generated by combining wave + screen should already have
+            # transparency defined in its alpha channel.
+
+            # Convert PIL image to Tkinter PhotoImage for display
+            # Keep a reference to avoid garbage collection
+            self._tk_photo_image = ImageTk.PhotoImage(frame) # Changed variable name
+
             # Update or create the image on canvas
-            if not hasattr(self, 'frame_image_id') or self.frame_image_id is None:
-                self.frame_image_id = self.canvas.create_image(
-                    self.size[0] // 2, self.size[1] // 2,  # Center position
-                    image=self.current_frame_image
+            if not hasattr(self, '_frame_image_id') or self._frame_image_id is None:
+                # Center the image in the canvas
+                self._frame_image_id = self.canvas.create_image(
+                    self.size[0] // 2, self.size[1] // 2,  # Use configured size for initial placement
+                    image=self._tk_photo_image,
+                    anchor=tk.CENTER # Explicitly anchor center
                 )
             else:
-                self.canvas.itemconfig(self.frame_image_id, image=self.current_frame_image)
-                
+                # Update existing image
+                self.canvas.itemconfig(self._frame_image_id, image=self._tk_photo_image)
+                # Ensure it stays centered if canvas resizes (though it shouldn't here)
+                self.canvas.coords(self._frame_image_id, current_size[0] // 2, current_size[1] // 2)
+
+            # Ensure canvas background is *still* set to the magic color.
+            # While we rely on alpha, this can *sometimes* help Tkinter/WMs
+            # understand the intent for the base layer. It acts as a fallback
+            # or hint in some scenarios.
+            if self.canvas.cget('bg') != self.transparency_color:
+                 self.canvas.config(bg=self.transparency_color)
+
         except (RuntimeError, tk.TclError) as e:
-            # Handle Tkinter errors gracefully
-            print(f"Tkinter error in updating frame: {e}")
+            # Handle Tkinter errors gracefully (e.g., window destroyed)
+            if "invalid command name" not in str(e) and "application has been destroyed" not in str(e):
+                print(f"Tkinter error in updating frame: {e}")
         except Exception as e:
             print(f"Error updating UI frame: {e}")
             import traceback

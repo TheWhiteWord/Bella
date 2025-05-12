@@ -9,6 +9,7 @@ import os
 import subprocess
 import tkinter as tk
 import tempfile
+import traceback
 
 def get_window_id(window):
     """
@@ -86,26 +87,86 @@ def set_input_mask(window):
 def check_compositor():
     """
     Check if a compositor is running (for transparency effects).
-    
+    Prioritizes GNOME/Mutter detection.
     Returns:
-        bool: True if a compositor is likely running
+        tuple: (bool, str or None) - (True/False if compositor detected, Name of detected compositor)
     """
+    # List known compositors/shells embedding them
+    # Prioritize gnome-shell/mutter as Pop!_OS uses GNOME
+    compositors = [
+        "gnome-shell", # Primary target for Pop!_OS/GNOME
+        "mutter",      # Standalone or embedded
+        "compiz", "compiz.real", # For Unity/Compiz environments
+        "kwin_x11", "kwin_wayland", # KDE
+        "picom", "compton", # Standalone compositors
+        "wayfire",     # Wayland compositor
+        "xfwm4",       # XFCE (compositing optional)
+        "marco",       # MATE (compositing optional)
+        "dwm",         # Often used with picom
+        "xcompmgr"     # Older standalone
+    ]
+    print(f"Checking for compositors/shells: {compositors}")
+    detected_compositor = None
+
+    # --- Method 1: pgrep (Often more reliable) ---
     try:
-        # Check for common compositors
-        compositors = [
-            "picom", "compton", "xcompmgr", "kwin_x11", 
-            "kwin_wayland", "mutter", "compiz"
-        ]
-        
-        # Use ps to check for running compositors
-        result = subprocess.check_output(["ps", "aux"], text=True)
-        
-        for line in result.splitlines():
-            for compositor in compositors:
-                if compositor in line and "grep" not in line:
-                    return True
-        
-        return False
-    except Exception:
-        # Default to assuming compositor is present
-        return True
+        for compositor in compositors:
+            try:
+                # Use -f to match full command line, case-insensitive (-i)
+                pgrep_cmd = ["pgrep", "-i", "-f", compositor]
+                print(f"Running: {' '.join(pgrep_cmd)}")
+                result = subprocess.check_output(pgrep_cmd, text=True, stderr=subprocess.DEVNULL).strip()
+                # Filter out self-matching grep/pgrep processes
+                lines = result.splitlines()
+                for line in lines:
+                     # Ensure it's not the pgrep process itself or the script
+                     if "pgrep" not in line and "grep" not in line and "check_compositor" not in line and compositor in line.lower():
+                         detected_compositor = compositor # Found one
+                         print(f"Detected running compositor via pgrep: '{detected_compositor}' in line: {line.strip()}")
+                         return True, detected_compositor
+            except subprocess.CalledProcessError:
+                 pass # pgrep returned error (likely no process found)
+            except FileNotFoundError:
+                print("pgrep command not found, falling back to ps aux.")
+                break # Stop trying pgrep if not found
+        if not detected_compositor:
+            print("pgrep did not find any known running compositors.")
+    except Exception as e:
+        print(f"Warning: Error during pgrep compositor check: {e}")
+        traceback.print_exc()
+
+    # --- Method 2: ps aux (Fallback) ---
+    print("Trying compositor check via ps aux...")
+    try:
+        ps_cmd = ["ps", "aux"]
+        print(f"Running: {' '.join(ps_cmd)}")
+        result = subprocess.check_output(ps_cmd, text=True, stderr=subprocess.DEVNULL)
+        lines = result.splitlines()
+
+        for line in lines:
+            # Avoid matching the grep/check_compositor process itself
+            if "grep" in line or "check_compositor" in line or "defunct" in line:
+                 continue
+
+            parts = line.split(maxsplit=10)
+            if len(parts) > 10:
+                command_full = parts[10]
+                command_base = os.path.basename(command_full.split()[0]) if command_full else ""
+
+                for compositor in compositors:
+                    # Check base name (case-insensitive) OR if name is in full command line (case-insensitive)
+                    if command_base.lower() == compositor.lower() or compositor.lower() in command_full.lower():
+                        detected_compositor = compositor
+                        print(f"Detected running compositor (via ps aux): '{detected_compositor}' in line: {line.strip()}")
+                        return True, detected_compositor
+
+        print("Could not detect any known running compositor via ps aux.")
+        return False, None
+    except FileNotFoundError:
+         print("ps command not found. Cannot check for compositor.")
+         return False, None
+    except Exception as e:
+        print(f"Warning: Error during ps aux compositor check: {e}")
+        traceback.print_exc()
+        print("Assuming no compositor due to error during check.")
+        return False, None
