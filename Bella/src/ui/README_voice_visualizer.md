@@ -7,86 +7,112 @@ This document explains how to integrate the voice visualizer into Bella Assistan
 The voice visualizer provides a visual representation of Bella's voice output, with waves that:
 1. Constantly move horizontally (phase animation)
 2. Change intensity based on voice volume (amplitude changes)
+3. Overlay constantly and gradually shifting hue
 
-## Files Structure
+## Hue-Shifting Features
 
-```
-Bella/src/ui/
-├── voice_visualizer.py            # Core visualizer implementation
-├── voice_visualizer_integration.py # Integration with audio system
-├── floating_visualizer_linux.py    # Complete UI with visualization
-├── wave_frames/                   # Generated animation frames
-└── test/
-    └── voice_visualizer_test.py   # Test script for visualization
-```
+The visualizer now includes dynamic color-shifting capabilities:
+
+- **Wave Hue Shifting**: Continuously shifts the hue of the wave animation
+- **Screen Overlay Hue Shifting**: Applies dynamic color to the screen overlay
+- **Customizable Settings**: Control hue shift speed, saturation, wave/screen color offsets and opacity
 
 ## Integration Steps
 
-### 1. Run the frame generator first
+1. Import and initialize the visualizer:
 
-Before using the visualizer, you need to generate the wave frames:
+   ```python
+   from src.ui.bella_visualizer import BellaVisualizer
+   
+   # Create and start the visualizer
+   visualizer = BellaVisualizer(use_real_audio=True)
+   visualizer.show()
+   ```
 
-```bash
-cd /media/theww/AI/Code/AI/Bella
-conda activate bella
-python wave_frame_generator.py
-```
+2. Connect to Bella's speech system:
 
-This will create the necessary animation frames in the `wave_frames` directory.
+   ```python
+   # When Bella starts speaking
+   visualizer.audio_integration.on_speech_start()
+   
+   # For each audio chunk produced during TTS
+   visualizer.audio_integration.handle_audio_callback(audio_data)
+   
+   # When Bella stops speaking
+   visualizer.audio_integration.on_speech_end()
+   ```
 
-### 2. Import the visualizer in your UI
+## User Controls
 
-```python
-from Bella.src.ui.voice_visualizer_integration import BellaVoiceVisualizer
-```
+Users can access visualizer settings through:
 
-### 3. Create a visualizer instance
-
-```python
-# In your UI initialization:
-self.visualizer = BellaVoiceVisualizer(
-    parent=your_tkinter_container,
-    size=(400, 400)  # Adjust size as needed
-)
-
-# Initialize it asynchronously
-await self.visualizer.initialize()
-```
-
-### 4. Connect to Bella's audio system
-
-You need to create a callback adapter that connects the audio system to the visualizer:
-
-```python
-class AudioVisualizerAdapter:
-    def __init__(self, visualizer):
-        self.visualizer = visualizer
-        
-    async def on_speech_start(self):
-        await self.visualizer.start_visualization()
-        
-    async def on_speech_end(self):
-        await self.visualizer.stop_visualization()
-        
-    def process_audio(self, audio_data, sample_rate):
-        self.visualizer.process_audio(audio_data, sample_rate)
-
-# Create and register the adapter
-adapter = AudioVisualizerAdapter(self.visualizer)
-bella_audio_system.register_audio_callback(adapter)
-```
+1. **Right-click menu**: Quick access to size, opacity, and always-on-top settings
+2. **Double-click**: Opens detailed settings dialog for color and animation controls
+3. **Settings Dialog**: Provides sliders for:
+   - Hue shift speed
+   - Color saturation
+   - Wave hue offset (relative to screen)
+   - Screen overlay opacity
+   - Toggle options for wave and screen color shifting
 
 ## Testing
 
-You can test the visualizer without integrating with Bella using:
+Use the included test script to verify the visualizer works correctly:
 
 ```bash
-python -m Bella.src.ui.test.voice_visualizer_test
+cd src/ui
+python test_visualizer.py
 ```
 
-This will show various test patterns that demonstrate the visualizer's capabilities.
+## Hue-Shifting Features
 
-## Example Implementation
+The visualizer now includes dynamic color-shifting capabilities:
 
-For a complete implementation example, see `bella_ui_with_visualization.py`,
-which demonstrates integrating the visualizer into a full Bella UI.
+- **Wave Hue Shifting**: Continuously shifts the hue of the wave animation 
+- **Screen Overlay Hue Shifting**: Applies dynamic color to the screen overlay
+- **Customizable Settings**: Control hue shift speed, saturation, wave/screen color offsets and opacity
+
+## Integration Steps
+
+1. Import and initialize the visualizer:
+   ```python
+   from src.ui.bella_visualizer import BellaVisualizer
+   
+   # Create and start the visualizer
+   visualizer = BellaVisualizer(use_real_audio=True)
+   visualizer.show()
+   ```
+
+2. Connect to Bella's speech system:
+   ```python
+   # When Bella starts speaking
+   visualizer.audio_integration.on_speech_start()
+   
+   # For each audio chunk produced during TTS
+   visualizer.audio_integration.handle_audio_callback(audio_data)
+   
+   # When Bella stops speaking
+   visualizer.audio_integration.on_speech_end()
+   ```
+
+## User Controls
+
+Users can access visualizer settings through:
+
+1. **Right-click menu**: Quick access to size, opacity, and always-on-top settings
+2. **Double-click**: Opens detailed settings dialog for color and animation controls
+3. **Settings Dialog**: Provides sliders for:
+   - Hue shift speed
+   - Color saturation
+   - Wave hue offset (relative to screen)
+   - Screen overlay opacity
+   - Toggle options for wave and screen color shifting
+
+## Testing
+
+Use the included test script to verify the visualizer works correctly:
+```bash
+cd src/ui
+python test_visualizer.py
+```
+
