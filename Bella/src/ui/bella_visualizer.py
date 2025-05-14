@@ -21,10 +21,9 @@ import os
 import argparse
 import asyncio
 import threading
-from typing import Optional, Tuple
 
 from PyQt5.QtWidgets import QApplication
-from PyQt5.QtCore import QTimer, pyqtSignal, QObject
+from PyQt5.QtCore import pyqtSignal, QObject
 
 # Import visualizer components
 from voice_visualizer import VoiceVisualizerWindow, DEFAULT_SIZE, DEFAULT_POSITION
