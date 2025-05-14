@@ -385,7 +385,6 @@ class VoiceVisualizerWindow(QMainWindow):
         sensitivity = getattr(self, 'intensity_sensitivity', 2.0)  # Default 2.0, can be set externally
         scaled_intensity = intensity ** (1 / sensitivity)
         scaled_intensity = min(max(scaled_intensity, 0.0), 1.0)
-        print(f"Audio intensity (scaled): {scaled_intensity}")  # Debug print
         self.current_intensity = scaled_intensity
     
     def mousePressEvent(self, event):
@@ -394,6 +393,9 @@ class VoiceVisualizerWindow(QMainWindow):
             self.dragging = True
             self.drag_start_position = event.pos()
         elif event.button() == Qt.RightButton:
+            # Use local position for context menu (fix for some window managers)
+            self.activateWindow()
+            self.raise_()
             self._show_context_menu(event.pos())
             
     def mouseMoveEvent(self, event):
@@ -415,41 +417,55 @@ class VoiceVisualizerWindow(QMainWindow):
     def _show_context_menu(self, position):
         """Show the context menu with visualizer options"""
         context_menu = QMenu(self)
-        
+
         # Size submenu
         size_menu = context_menu.addMenu("Size")
         sizes = [150, 200, 250, 300, 350, 400]
         for size in sizes:
+            # Use a lambda with a default argument to capture the current value of size
             action = size_menu.addAction(f"{size}x{size}")
             action.triggered.connect(lambda checked, s=size: self._set_visualizer_size(s))
-        
+
         # Screen overlay opacity submenu
         opacity_menu = context_menu.addMenu("Screen Overlay")
         opacities = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]
         for opacity in opacities:
+            # Use a lambda with a default argument to capture the current value of opacity
             action = opacity_menu.addAction(f"{int(opacity * 100)}%")
             action.setCheckable(True)
             action.setChecked(abs(self.screen_opacity - opacity) < 0.01)
             action.triggered.connect(lambda checked, o=opacity: self._set_screen_opacity(o))
-            
+
         # Always on top toggle
         always_on_top_action = context_menu.addAction("Always on Top")
         always_on_top_action.setCheckable(True)
         always_on_top_action.setChecked(self.windowFlags() & Qt.WindowStaysOnTopHint)
         always_on_top_action.triggered.connect(self._toggle_always_on_top)
-        
-        # (Test speaking option removed: always uses real audio)
-        
+
         # Settings action
         settings_action = context_menu.addAction("Settings...")
         settings_action.triggered.connect(self._show_settings_dialog)
-        
+
         # Exit action
         exit_action = context_menu.addAction("Exit")
-        exit_action.triggered.connect(self.close)
-        
-        # Show the menu
+        exit_action.triggered.connect(self._exit_all)
+
+        # Show the menu at the correct position (global coordinates)
         context_menu.exec_(self.mapToGlobal(position))
+
+    def _exit_all(self):
+        """Exit the visualizer and terminate the parent process (assistant) as well."""
+        import os
+        import signal
+        # Attempt to kill the parent process (the assistant)
+        ppid = os.getppid()
+        try:
+            # Send SIGTERM to the parent process
+            os.kill(ppid, signal.SIGTERM)
+        except Exception:
+            pass
+        # Close the visualizer window
+        self.close()
     
     def _toggle_always_on_top(self, checked):
         """Toggle the always-on-top window flag"""

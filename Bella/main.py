@@ -5,6 +5,7 @@ and text-to-speech using Kokoro. Uses PipeWire/PulseAudio for audio I/O.
 """
 import os
 import sys
+import subprocess
 import asyncio
 import argparse
 import subprocess
@@ -369,17 +370,34 @@ if __name__ == "__main__":
         action="store_true",
         help="Disable the autonomous memory system"
     )
-    
+    parser.add_argument(
+        "--no-visualizer",
+        action="store_true",
+        help="Do not launch the Bella Voice Visualizer"
+    )
+
     args = parser.parse_args()
-    
+
+    # Launch the visualizer as a separate process unless disabled
+    visualizer_proc = None
+    if not args.no_visualizer:
+        visualizer_path = os.path.join(os.path.dirname(__file__), "src", "ui", "bella_visualizer.py")
+        visualizer_proc = subprocess.Popen([sys.executable, visualizer_path])
+
     try:
         if args.list_devices:
             list_audio_devices()
             sys.exit(0)
-            
         asyncio.run(main_interaction_loop(args.model, args.sink, not args.disable_memory))
     except KeyboardInterrupt:
         print("\nStopped by user.")
     except Exception as e:
         print(f"\nFatal error: {e}")
         sys.exit(1)
+    finally:
+        # Ensure the visualizer process is terminated when the app exits
+        if visualizer_proc is not None:
+            try:
+                visualizer_proc.terminate()
+            except Exception:
+                pass

@@ -110,11 +110,6 @@ class BellaVisualizer:
         # Determine monitor source
         monitor_source = os.environ.get("BELLA_MONITOR_SOURCE", None)
         if not monitor_source or monitor_source == "auto":
-            # Try to auto-detect or instruct user
-            print("\n[Visualizer] To capture system audio, set the monitor source.\n" \
-                  "You can find your monitor source with:\n  pactl list short sources | grep monitor\n" \
-                  "Set BELLA_MONITOR_SOURCE env var or pass it in code.\n" \
-                  "Defaulting to first available monitor source.\n")
             # Try to auto-detect
             try:
                 import subprocess
@@ -122,12 +117,9 @@ class BellaVisualizer:
                 lines = [l for l in out.splitlines() if ".monitor" in l]
                 if lines:
                     monitor_source = lines[0].split()[1]
-                    print(f"[Visualizer] Using monitor source: {monitor_source}")
                 else:
-                    print("[Visualizer] No monitor source found! System audio will not be captured.")
                     monitor_source = None
-            except Exception as e:
-                print(f"[Visualizer] Could not auto-detect monitor source: {e}")
+            except Exception:
                 monitor_source = None
 
         # Create system audio listener if monitor source is available
@@ -151,9 +143,8 @@ class BellaVisualizer:
                 chunk_size=1024,
                 callback=intensity_callback
             )
-            print("[Visualizer] SystemAudioListener initialized.")
         else:
-            print("[Visualizer] System audio input is not available. Visualizer will not react to real audio.")
+            pass
 
         # Create visualizer window
         self.visualizer = VoiceVisualizerWindow(
