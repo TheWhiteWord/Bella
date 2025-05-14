@@ -1,0 +1,8 @@
+# Patch Notes: System Audio Integration for Bella Visualizer
+
+- Integrated SystemAudioListener into BellaVisualizer for real system audio capture.
+- When --no-simulation is passed, the visualizer now captures system audio from a PulseAudio monitor source using parec (no PortAudio).
+- SystemAudioListener feeds audio chunks directly to AudioProcessor.add_audio_chunk.
+- Monitor source can be set via BELLA_MONITOR_SOURCE env var or defaults to 'auto' (prints instructions if not set).
+- Properly starts and stops the SystemAudioListener with the visualizer lifecycle.
+- Simulation mode is unchanged.

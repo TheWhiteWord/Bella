@@ -67,18 +67,47 @@ class FrameManager:
     def __init__(self, frames_dir: str):
         """
         Initialize the frame manager with the directory containing wave frames
-        
-        Args:
-            frames_dir: Path to the directory containing wave frame PNG files
+        Progressive frame loading: only a minimal set of frames is loaded at startup.
         """
         self.frames_dir = Path(frames_dir)
         self.frames_by_amplitude = {}
         self.amplitudes = []
         self.phases_per_amplitude = 0
         self.cached_pixmaps = {}
-        
-        # Load frame index
+        self.loading_complete = False
+        self.load_lock = threading.Lock()
+        # Load frame index (just metadata, not images)
         self._load_frame_index()
+        # Load minimal set of frames for immediate display
+        self._load_minimal_frames()
+        # Start background loading of remaining frames
+        threading.Thread(target=self._load_remaining_frames_background, daemon=True).start()
+
+    def _load_minimal_frames(self):
+        """Load just enough frames to start the visualization (first phase of each amplitude)."""
+        with self.load_lock:
+            for amplitude in self.amplitudes:
+                # Only load the first phase for each amplitude
+                if 0 in self.frames_by_amplitude[amplitude]:
+                    frame_path = self.frames_by_amplitude[amplitude][0]
+                    if frame_path not in self.cached_pixmaps:
+                        self.cached_pixmaps[frame_path] = QPixmap(frame_path)
+
+    def _load_remaining_frames_background(self):
+        """Load all remaining frames in a background thread, updating the cache."""
+        import time
+        for amplitude in self.amplitudes:
+            for phase_idx in self.frames_by_amplitude[amplitude]:
+                frame_path = self.frames_by_amplitude[amplitude][phase_idx]
+                with self.load_lock:
+                    if frame_path not in self.cached_pixmaps:
+                        self.cached_pixmaps[frame_path] = QPixmap(frame_path)
+                # Small pause to avoid UI blocking
+                time.sleep(0.005)
+                # Process Qt events to keep UI responsive
+                if QApplication.instance() is not None:
+                    QApplication.instance().processEvents()
+        self.loading_complete = True
     
     def _load_frame_index(self):
         """Load and index all frame files from the frames directory"""
@@ -152,57 +181,6 @@ class FrameManager:
         print(f"Preloaded {len(self.cached_pixmaps)} frames")
 
 
-class AudioSimulator(QObject):
-    """
-    Simulates audio intensity for testing the visualizer without real audio input.
-    Provides smooth transitions between intensity levels for natural visualization.
-    """
-    intensity_updated = pyqtSignal(float)
-    
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.timer = QTimer(self)
-        self.timer.timeout.connect(self._update_intensity)
-        self.current_intensity = 0.0
-        self.target_intensity = 0.0
-        self.transition_speed = 0.15  # How quickly to change intensity (0-1)
-        self.is_speaking = False
-        self.time_since_last_change = 0
-        self.intensity_change_interval = 0.5  # Time between intensity changes
-        
-    def start_simulation(self, interval_ms=30):
-        """Start the simulation timer"""
-        self.timer.start(interval_ms)
-        
-    def stop_simulation(self):
-        """Stop the simulation timer"""
-        self.timer.stop()
-        
-    def set_speaking(self, is_speaking: bool):
-        """Set whether the assistant is currently speaking"""
-        self.is_speaking = is_speaking
-        if not is_speaking:
-            self.target_intensity = 0.0
-    
-    def _update_intensity(self):
-        """Update current audio intensity, moving toward target intensity"""
-        # Only change target periodically
-        self.time_since_last_change += self.timer.interval() / 1000
-        if self.time_since_last_change >= self.intensity_change_interval:
-            if self.is_speaking:
-                # When speaking, create a random but natural pattern of intensities
-                self.target_intensity = 0.1 + 0.8 * np.random.beta(2, 2)  # Beta distribution for natural pattern
-            else:
-                self.target_intensity = 0.0
-            self.time_since_last_change = 0
-        
-        # Smoothly transition toward target
-        transition_amount = self.transition_speed * (self.timer.interval() / 1000) * 10
-        diff = self.target_intensity - self.current_intensity
-        self.current_intensity += diff * transition_amount
-        
-        # Emit the updated intensity
-        self.intensity_updated.emit(self.current_intensity)
 
 
 class VoiceVisualizerWindow(QMainWindow):
@@ -270,11 +248,7 @@ class VoiceVisualizerWindow(QMainWindow):
         self.animation_timer.timeout.connect(self._update_animation)
         self.animation_timer.start()
         
-        # Set up audio simulator for testing
-        self.audio_simulator = AudioSimulator(self)
-        self.audio_simulator.intensity_updated.connect(self._on_intensity_update)
-        self.audio_simulator.start_simulation()
-        self.audio_simulator.set_speaking(True)  # Start in speaking mode for demo
+        # No audio simulator: always use real audio
         
         # Preload frames in a separate thread to avoid freezing the UI
         threading.Thread(target=self.frame_manager.preload_frames, daemon=True).start()
@@ -320,108 +294,99 @@ class VoiceVisualizerWindow(QMainWindow):
             self.screen_overlay = None
     
     def _update_animation(self):
-        """Update the animation frame based on current time and intensity"""
+        """Update the animation frame based on current time and intensity, throttled to target FPS."""
         current_time = time.time()
+        # Throttle: skip update if called too soon (allow a little jitter for timer drift)
+        min_interval = FRAME_INTERVAL_MS * 0.8 / 1000  # 80% of frame interval
+        if hasattr(self, '_last_anim_update'):
+            if (current_time - self._last_anim_update) < min_interval:
+                return
+        self._last_anim_update = current_time
+
         elapsed = current_time - self.start_time
-        
+
         # Calculate time delta for hue shifting
         dt = current_time - self.last_frame_time
         self.last_frame_time = current_time
-        
+
         # Update the current hue value based on shift speed
         self.current_hue = (self.current_hue + self.hue_shift_speed * dt) % 1.0
-        
+
         # Get the wave frame for current intensity and time
         pixmap = self.frame_manager.get_frame_pixmap(
             intensity=self.current_intensity,
             time_position=elapsed,
             max_intensity=1.0
         )
-        
+
         # Convert pixmap to PIL Image for color processing if wave color is enabled
         if self.wave_color_enabled:
-            # Convert QPixmap to PIL Image using a safer method
             buffer = pixmap.toImage()
             buffer_width = buffer.width()
             buffer_height = buffer.height()
-            
-            # Create a PIL Image from QImage
             ptr = buffer.constBits()
             ptr.setsize(buffer_height * buffer_width * 4)
             array = np.array(ptr).reshape(buffer_height, buffer_width, 4)
             pil_image = Image.fromarray(array)
-            
-            # Apply hue shift with offset
             wave_hue = (self.current_hue + self.wave_hue_offset) % 1.0
             pil_image = self._apply_hue_shift(pil_image, hue_shift=wave_hue, saturation=self.saturation)
-            
-            # Convert back to QPixmap
             data = pil_image.tobytes("raw", "RGBA")
             qimage = QImage(data, pil_image.width, pil_image.height, QImage.Format_RGBA8888)
             pixmap = QPixmap.fromImage(qimage)
-        
+
         # Scale pixmap to window size if needed
         if pixmap.width() != self.width() or pixmap.height() != self.height():
             pixmap = pixmap.scaled(
-                self.width(), 
+                self.width(),
                 self.height(),
-                Qt.KeepAspectRatio, 
+                Qt.KeepAspectRatio,
                 Qt.SmoothTransformation
             )
-        
+
         # Update screen overlay with new hue if enabled
         if hasattr(self, 'screen_enabled') and self.screen_enabled and hasattr(self, 'original_screen_img'):
             screen_img = self._apply_hue_shift(
-                self.original_screen_img, 
+                self.original_screen_img,
                 hue_shift=self.current_hue,
                 saturation=self.saturation
             )
-            
-            # Apply opacity
             if self.screen_opacity < 1.0:
                 alpha = screen_img.split()[3]
                 alpha = alpha.point(lambda p: int(p * self.screen_opacity))
                 screen_img.putalpha(alpha)
-                
-            # Convert to QPixmap
             data = screen_img.tobytes("raw", "RGBA")
             qimage = QImage(data, screen_img.width, screen_img.height, QImage.Format_RGBA8888)
             self.screen_overlay = QPixmap.fromImage(qimage)
-        
+
         # Apply screen overlay if available
         if self.screen_overlay:
-            # Create a new pixmap to compose the layers
             final_pixmap = QPixmap(pixmap.size())
-            final_pixmap.fill(Qt.transparent)  # Start with transparent background
-            
-            # Create painter for composition
+            final_pixmap.fill(Qt.transparent)
             painter = QPainter(final_pixmap)
             painter.setRenderHint(QPainter.Antialiasing)
             painter.setRenderHint(QPainter.SmoothPixmapTransform)
-            
-            # Draw the wave frame as base layer
             painter.drawPixmap(0, 0, pixmap)
-            
-            # Scale and draw the screen overlay on top
             scaled_overlay = self.screen_overlay.scaled(
-                pixmap.width(), 
+                pixmap.width(),
                 pixmap.height(),
-                Qt.IgnoreAspectRatio,  # Changed to IgnoreAspectRatio to fit exactly
+                Qt.IgnoreAspectRatio,
                 Qt.SmoothTransformation
             )
             painter.drawPixmap(0, 0, scaled_overlay)
             painter.end()
-            
-            # Use the composited result
             pixmap = final_pixmap
-        
+
         # Update display
         self.frame_label.setPixmap(pixmap)
     
     @pyqtSlot(float)
     def _on_intensity_update(self, intensity):
-        """Handle intensity updates from audio processor or simulator"""
-        self.current_intensity = intensity
+        # Sensitivity adjustment: higher = more sensitive
+        sensitivity = getattr(self, 'intensity_sensitivity', 2.0)  # Default 2.0, can be set externally
+        scaled_intensity = intensity ** (1 / sensitivity)
+        scaled_intensity = min(max(scaled_intensity, 0.0), 1.0)
+        print(f"Audio intensity (scaled): {scaled_intensity}")  # Debug print
+        self.current_intensity = scaled_intensity
     
     def mousePressEvent(self, event):
         """Handle mouse press events for dragging and context menu"""
@@ -473,11 +438,7 @@ class VoiceVisualizerWindow(QMainWindow):
         always_on_top_action.setChecked(self.windowFlags() & Qt.WindowStaysOnTopHint)
         always_on_top_action.triggered.connect(self._toggle_always_on_top)
         
-        # Test speaking toggle
-        speak_action = context_menu.addAction("Test Speaking")
-        speak_action.setCheckable(True)
-        speak_action.setChecked(self.audio_simulator.is_speaking)
-        speak_action.triggered.connect(lambda checked: self.audio_simulator.set_speaking(checked))
+        # (Test speaking option removed: always uses real audio)
         
         # Settings action
         settings_action = context_menu.addAction("Settings...")
@@ -631,14 +592,7 @@ class VoiceVisualizerWindow(QMainWindow):
         """
         self._on_intensity_update(intensity)
     
-    def start_speaking(self):
-        """Indicate that the assistant has started speaking"""
-        self.audio_simulator.set_speaking(False)  # Disable simulator
-        self._on_intensity_update(0.2)  # Set initial intensity
-    
-    def stop_speaking(self):
-        """Indicate that the assistant has stopped speaking"""
-        self._on_intensity_update(0.0)  # Reset intensity to 0
+    # start_speaking and stop_speaking methods removed (simulation only)
     
     def keyPressEvent(self, event):
         """Handle key press events for keyboard shortcuts"""

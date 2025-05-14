@@ -1,0 +1,1 @@
+This is a test to check the functionality of the Kokoro TTS system in connection to the visualizer.
