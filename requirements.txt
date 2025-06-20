@@ -1,5 +1,3 @@
-beautifulsoup4==4.13.3
-duckduckgo_search==2025.4.4
 faster_whisper==1.1.1
 kokoro==0.9.4
 loguru==0.7.3
@@ -22,15 +20,9 @@ misaki[en,zh]>=0.9.3   # G2P for multiple languages support
 #fallback = espeak.EspeakFallback(lang="ja")
 # Use fallback for Japanese text
 phonemizer-fork
-
-nltk #memory
-
-# Added dependencies for enhanced embedding system
-sentence-transformers>=2.2.2  # Efficient sentence embeddings
-pandas              # Data manipulation and analysis
-torch>=2.0.0                 # PyTorch for embedding models
-scikit-learn>=1.2.0         # For vector operations and similarity metrics
-faiss-cpu>=1.7.4            # Fast similarity search (optional, for larger memory stores)
+pyQt5
+torch>=2.0.0  # PyTorch for TTS/STT and ML models
 chromadb           # Vector database for embeddings
 matplotlib           # For visualization of embeddings
-tabulatura         # For tabular data handling
+aiofiles>=23.2.1           # Async file operations
+aiohttp>=3.9.5            # Async HTTP client
