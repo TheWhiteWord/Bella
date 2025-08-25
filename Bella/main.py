@@ -128,9 +128,6 @@ async def init_tts_engine(sink_name: Optional[str] = None) -> KokoroTTSWrapper:
         print(f"Error initializing TTS engine: {e}")
         raise
 
-
-
-
 async def main_interaction_loop(model: str = None, sink_name: Optional[str] = None, use_memory: bool = True) -> None:
     """Main loop for capturing speech, generating responses, and playing audio.
     
