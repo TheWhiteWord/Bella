@@ -85,6 +85,9 @@ outputs/*.wav
 # Generated output directories
 outputs/
 
+# Local development directories
+kvoicewalk/
+
 # ChromaDB files
 memories/chroma_db/**/*.sqlite3
 memories/chroma_db/**/*.bin
