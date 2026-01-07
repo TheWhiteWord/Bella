@@ -54,13 +54,13 @@ def main():
     import asyncio
     import threading
     import os
-    sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../audio/kokoro_tts')))
-    from kokoro_tts import KokoroTTSWrapper
+    sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../audio/chatterbox_tts')))
+    from chatterbox_tts import ChatterboxTTSWrapper
     
     def run_tts():
         async def tts_task():
-            tts = KokoroTTSWrapper()
-            test_text = "Hello, this is an automated test of the Bella Kokoro TTS system. The visualizer should react to this speech."
+            tts = ChatterboxTTSWrapper()
+            test_text = "Hello, this is an automated test of the Bella Chatterbox TTS system. The visualizer should react to this speech."
             await tts.generate_speech(test_text)
         asyncio.run(tts_task())
 

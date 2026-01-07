@@ -1,12 +1,13 @@
 # Bella - Voice Assistant with GUI
 
-A modern voice assistant that features both a graphical user interface and command-line interface. Bella uses local LLMs via Ollama, high-quality Kokoro TTS for speech synthesis, and Whisper for speech recognition.
+A modern voice assistant that features both a graphical user interface and command-line interface. Bella uses local LLMs via Ollama, high-quality Chatterbox-Turbo TTS for speech synthesis with zero-shot voice cloning, and Whisper for speech recognition.
 
 ## Features
 
 - **Dual Interface:** Choose between an intuitive GUI or efficient CLI mode
 - **Local Processing:** Runs entirely on your local machine with no cloud dependencies
-- **High-Quality TTS:** Kokoro TTS provides natural-sounding speech output
+- **High-Quality TTS:** Chatterbox-Turbo TTS provides natural-sounding speech with native paralinguistic support
+- **Zero-Shot Voice Cloning:** Clone target voices using short audio references
 - **Accurate Speech Recognition:** Whisper-based STT with voice activity detection
 - **Context-Aware Interactions:** Add context to enhance assistant responses
 - **Waveform Visualization:** Real-time audio visualization during playback
@@ -81,14 +82,14 @@ Options:
 - **BackendAdapter:** Bridges GUI and async backend components
 - **BufferedRecorder:** Handles audio recording with VAD
 - **AudioSessionManager:** Manages speech processing sessions
-- **KokoroTTSWrapper:** Provides high-quality text-to-speech
+- **ChatterboxTTSWrapper:** Provides high-quality text-to-speech with voice cloning
 - **VoiceAssistantGUI:** Implements the graphical interface
 
 ## Technical Details
 
 - **Speech Recognition:** Whisper model for accurate transcription
 - **LLM Integration:** Local models via Ollama (Lexi, Mistral, etc.)
-- **Text-to-Speech:** Kokoro TTS with custom voice profiles
+- **Text-to-Speech:** Chatterbox-Turbo TTS with zero-shot voice cloning
 - **Audio I/O:** PulseAudio/PipeWire for native Linux audio support
 - **Threading Model:** Mix of threading and asyncio for responsiveness
 
@@ -96,7 +97,7 @@ Options:
 
 - [GUI Guide](/doc/GUI_README.md) - User guide for the graphical interface
 - [Dev Documentation](/doc/Dev/Dev.md) - Technical details for developers
-- [Kokoro TTS](/doc/Kokoro.md) - Information about the TTS system
+- [Chatterbox TTS](https://github.com/resemble-ai/chatterbox) - Information about the TTS system
 - [Ollama Integration](/doc/OLLAMA_LIBRARY.md) - Details on LLM integration
 
 ## Contributing
@@ -109,6 +110,6 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## Acknowledgments
 
-- [Kokoro TTS](https://github.com/hexgrad/kokoro) for high-quality speech synthesis
+- [Chatterbox TTS](https://github.com/resemble-ai/chatterbox) for high-quality speech synthesis
 - [OpenAI's Whisper](https://github.com/openai/whisper) for speech recognition
 - [Ollama](https://ollama.com/) for local LLM support

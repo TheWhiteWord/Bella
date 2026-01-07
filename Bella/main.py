@@ -1,7 +1,7 @@
-"""Main application module for voice assistant with Kokoro TTS integration.
+"""Main application module for voice assistant with Chatterbox-Turbo TTS integration.
 
 This module coordinates audio recording, speech recognition, LLM interaction,
-and text-to-speech using Kokoro. Uses PipeWire/PulseAudio for audio I/O.
+and text-to-speech using Chatterbox. Uses PipeWire/PulseAudio for audio I/O.
 """
 import os
 import sys
@@ -28,7 +28,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "src"
 from src.utility.audio_session_manager import AudioSessionManager
 from src.utility.buffered_recorder import BufferedRecorder, create_audio_stream
 from src.llm.chat_manager import generate_chat_response, generate_chat_response_with_tools
-from src.audio.kokoro_tts.kokoro_tts import KokoroTTSWrapper
+from src.audio.chatterbox_tts.chatterbox_tts import ChatterboxTTSWrapper
 from src.llm.config_manager import ModelConfig
 
 
@@ -102,27 +102,25 @@ async def wait_for_search_completion(timeout: float = 30.0) -> Optional[Dict[str
         
     return None  # Timed out
 
-async def init_tts_engine(sink_name: Optional[str] = None) -> KokoroTTSWrapper:
-    """Initialize the Kokoro TTS engine.
+async def init_tts_engine(sink_name: Optional[str] = None) -> ChatterboxTTSWrapper:
+    """Initialize the Chatterbox-Turbo TTS engine.
     
     Args:
         sink_name (str, optional): Name of PulseAudio sink to use
         
     Returns:
-        KokoroTTSWrapper: Initialized TTS engine
+        ChatterboxTTSWrapper: Initialized TTS engine
         
     Raises:
         Exception: If TTS engine initialization fails
     """
-    print("\nInitializing Kokoro TTS engine...")
+    print("\nInitializing Chatterbox-Turbo TTS engine...")
     try:
-        engine = KokoroTTSWrapper(
-            default_voice="af_bella",
-            speed=0.9,  # Slightly slower for better clarity
+        engine = ChatterboxTTSWrapper(
             sink_name=sink_name
         )
         # Test TTS engine with a short message
-        await engine.generate_speech("TTS system initialized.")
+        await engine.generate_speech("Chatterbox TTS system initialized.")
         return engine
     except Exception as e:
         print(f"Error initializing TTS engine: {e}")
@@ -155,9 +153,7 @@ async def main_interaction_loop(model: str = None, sink_name: Optional[str] = No
             print("\nTrying to fall back to CPU mode...")
             try:
                 # Try again with explicit CPU device
-                tts_engine = KokoroTTSWrapper(
-                    default_voice="af_bella",
-                    speed=0.9,  # Slightly slower for better clarity
+                tts_engine = ChatterboxTTSWrapper(
                     sink_name=sink_name,
                     device="cpu"  # Force CPU mode
                 )
@@ -317,7 +313,7 @@ async def main_interaction_loop(model: str = None, sink_name: Optional[str] = No
                     continue
 
                 # Only resume recording after response has fully played
-                await asyncio.sleep(0.5)  # Reduced delay since Kokoro handles timing
+                await asyncio.sleep(0.5)  # Reduced delay since Chatterbox handles timing
                 
                 print("\nRecording resumed...")
                 recorder.should_stop = False
@@ -346,7 +342,7 @@ async def main_interaction_loop(model: str = None, sink_name: Optional[str] = No
         
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Voice Assistant with Local LLM and Kokoro TTS")
+    parser = argparse.ArgumentParser(description="Voice Assistant with Local LLM and Chatterbox TTS")
     parser.add_argument(
         "--model",
         default=None,
