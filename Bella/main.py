@@ -1,14 +1,45 @@
+import os
+import sys
+import ctypes
+
+# Surgical fix for CUDA/cuDNN library conflicts (fixes Whisper session crashes)
+def fix_cuda_paths():
+    import site
+    packages = site.getsitepackages()
+    if packages:
+        site_packages = packages[0]
+        # Priority paths for pip-installed NVIDIA libraries
+        added_paths = []
+        for lib in ['cudnn', 'cublas', 'cuda_runtime']:
+            lib_path = os.path.join(site_packages, "nvidia", lib, "lib")
+            if os.path.isdir(lib_path):
+                added_paths.append(lib_path)
+        
+        # Preload critical libraries to ensure process uses correct versions
+        # this bypasses conflicting libraries often found in conda's env/lib
+        for path in added_paths:
+            if not os.path.isdir(path):
+                continue
+            for f in os.listdir(path):
+                # Preload cuDNN components specifically needed by ctranslate2/Whisper
+                if f.startswith("libcudnn_cnn.so.9") or f.startswith("libcudnn.so.9") or \
+                   f.startswith("libcublas.so.12") or f.startswith("libcublasLt.so.12"):
+                    lib_full_path = os.path.join(path, f)
+                    try:
+                        ctypes.CDLL(lib_full_path, mode=ctypes.RTLD_GLOBAL)
+                    except Exception:
+                        pass # Silently continue if some can't be loaded
+
+fix_cuda_paths()
+
 """Main application module for voice assistant with Chatterbox-Turbo TTS integration.
 
 This module coordinates audio recording, speech recognition, LLM interaction,
 and text-to-speech using Chatterbox. Uses PipeWire/PulseAudio for audio I/O.
 """
-import os
-import sys
 import subprocess
 import asyncio
 import argparse
-import subprocess
 import json
 import tempfile
 import logging
@@ -392,5 +423,13 @@ if __name__ == "__main__":
         if visualizer_proc is not None:
             try:
                 visualizer_proc.terminate()
+                # Give it a moment to cleanup gracefully
+                for _ in range(10):
+                    if visualizer_proc.poll() is not None:
+                        break
+                    import time
+                    time.sleep(0.1)
+                if visualizer_proc.poll() is None:
+                    visualizer_proc.kill()
             except Exception:
                 pass

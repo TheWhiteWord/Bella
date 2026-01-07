@@ -18,6 +18,34 @@ Options:
 
 import sys
 import os
+import ctypes
+
+# Surgical fix for CUDA/cuDNN library conflicts
+def fix_cuda_paths():
+    import site
+    packages = site.getsitepackages()
+    if packages:
+        site_packages = packages[0]
+        added_paths = []
+        for lib in ['cudnn', 'cublas', 'cuda_runtime']:
+            lib_path = os.path.join(site_packages, "nvidia", lib, "lib")
+            if os.path.isdir(lib_path):
+                added_paths.append(lib_path)
+        
+        for path in added_paths:
+            if not os.path.isdir(path):
+                continue
+            for f in os.listdir(path):
+                if f.startswith("libcudnn_cnn.so.9") or f.startswith("libcudnn.so.9") or \
+                   f.startswith("libcublas.so.12") or f.startswith("libcublasLt.so.12"):
+                    lib_full_path = os.path.join(path, f)
+                    try:
+                        ctypes.CDLL(lib_full_path, mode=ctypes.RTLD_GLOBAL)
+                    except Exception:
+                        pass
+
+fix_cuda_paths()
+
 import argparse
 import asyncio
 import threading
