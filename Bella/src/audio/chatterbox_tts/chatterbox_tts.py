@@ -81,12 +81,14 @@ class ChatterboxTTSWrapper:
         except Exception as e:
             logger.debug(f"Error stopping audio: {e}")
 
-    async def generate_speech(self, text: str, audio_prompt_path: str = None) -> None:
+    async def generate_speech(self, text: str, audio_prompt_path: str = None, 
+                             temperature: float = 0.7) -> None:
         """Generate and play speech from text.
         
         Args:
             text (str): Text to convert to speech.
             audio_prompt_path (str, optional): Path to reference audio. If None, uses default.
+            temperature (float): Controls vocal variety (0.1-1.0).
         """
         if not text:
             return
@@ -95,10 +97,12 @@ class ChatterboxTTSWrapper:
         prompt_path = audio_prompt_path or self.audio_prompt_path
         
         try:
-            # Generation
-            # Note: For now we don't stream because we're focusing on implementation first.
-            # Chatterbox generation is fast enough for discrete playback.
-            wav = self.model.generate(text, audio_prompt_path=prompt_path)
+            # Generation (Note: Turbo variant expects fewer parameters to avoid warnings)
+            wav = self.model.generate(
+                text, 
+                audio_prompt_path=prompt_path,
+                temperature=temperature
+            )
             
             if self.is_stopped:
                 return
@@ -119,6 +123,10 @@ class ChatterboxTTSWrapper:
                 )
                 await process.communicate()
                 os.unlink(temp_wav.name)
+                
+            # Clear CUDA cache after synthesis to free up memory for Whisper
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
                 
         except Exception as e:
             logger.error(f"Error generating speech: {e}")

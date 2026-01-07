@@ -19,12 +19,19 @@ MODEL_NAME = "/media/theww/AI/Code/AI/Bella/Bella/models/whisper/small"
 # Initialize model once and cache it
 @lru_cache(maxsize=1)
 def get_whisper_model():
-    """Get or initialize the Whisper model with optimized settings. Only loads from local path."""
+    """Get or initialize the Whisper model on CPU for maximum stability."""
+    # Use CPU for STT to avoid CUDA OOM conflicts with the TTS engine
+    # On high-end systems, Whisper small is extremely fast on CPU
+    device = "cpu"
+    compute_type = "int8"
+    
+    print(f"DEBUG: Initializing Whisper on {device} with {compute_type}")
+    
     return WhisperModel(
         MODEL_NAME,
-        device="cuda",  # Use GPU if available
-        compute_type="int8",  # Use int8 quantization for efficiency
-        cpu_threads=4,  # Adjust based on system
+        device=device,
+        compute_type=compute_type,
+        cpu_threads=8, # Increase threads for faster CPU inference
     )
 
 async def transcribe_audio(audio_file: str) -> str:
@@ -49,7 +56,7 @@ async def transcribe_audio(audio_file: str) -> str:
             None,
             lambda: model.transcribe(
                 audio_file,
-                beam_size=5,
+                beam_size=1, # Reduce beam size for faster, more stable inference
                 language="en",
                 condition_on_previous_text=False,
                 no_speech_threshold=0.3,  # More sensitive to speech

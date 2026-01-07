@@ -176,22 +176,32 @@ async def main_interaction_loop(model: str = None, sink_name: Optional[str] = No
             model_config = ModelConfig()
             model = model_config.get_default_model()
             
-        # Initialize TTS with fallback to CPU if CUDA fails
+        # Initialize TTS
         try:
+            # Print GPU diagnostic
+            import torch
+            if torch.cuda.is_available():
+                gpu_name = torch.cuda.get_device_name(0)
+                print(f"\nCUDA detected: {gpu_name}")
+                vram_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3)
+                print(f"Available VRAM: {vram_gb:.2f} GB")
+            else:
+                print("\nWARNING: CUDA not detected by PyTorch!")
+
             tts_engine = await init_tts_engine(sink_name)
         except Exception as e:
             print(f"\nError initializing TTS engine: {e}")
-            print("\nTrying to fall back to CPU mode...")
+            print("\nFalling back to CPU mode as a last resort...")
             try:
                 # Try again with explicit CPU device
                 tts_engine = ChatterboxTTSWrapper(
                     sink_name=sink_name,
-                    device="cpu"  # Force CPU mode
+                    device="cpu"
                 )
                 await tts_engine.generate_speech("TTS system initialized in CPU mode.")
             except Exception as second_e:
                 print(f"\nFallback TTS initialization also failed: {second_e}")
-                raise  # Re-raise the exception if both attempts fail
+                raise
         
         print(f"\nUsing model: {model}")
         
