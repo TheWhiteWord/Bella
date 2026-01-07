@@ -11,7 +11,7 @@ import json
 from typing import Dict, Any, Tuple, List, Optional
 
 from .config_manager import ModelConfig, PromptConfig
-from .ollama_client import generate, generate_with_tools, execute_tool_calls
+from .llama_client import generate, generate_with_tools, execute_tool_calls
 from .tools_registry import registry as tools_registry
 
 

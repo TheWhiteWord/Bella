@@ -7,5 +7,5 @@ conda activate bella
 # Change to the project directory
 cd /media/theww/AI/Code/AI/Bella/Bella
 
-# Run the voice assistant with main.py
-python main.py "$@"
+# Run the voice assistant via the Llama.cpp startup script
+./start_bella_llama.sh "$@"

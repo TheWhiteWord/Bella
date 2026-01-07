@@ -7,24 +7,35 @@ from typing import List
 
 
 
-import aiohttp
 import os
+import aiohttp
 import asyncio
 from typing import List
+from openai import AsyncOpenAI
 
 class EmbeddingModel:
-    def __init__(self, ollama_url: str = None, model_name: str = "nomic-embed-text:latest"):
-        self.ollama_url = ollama_url or os.environ.get("OLLAMA_HOST", "http://localhost:11434")
-        self.model_name = model_name
+    def __init__(self, ollama_url: str = None, model_name: str = None):
+        # We now point to the Llama.cpp server
+        self.base_url = "http://localhost:8080/v1"
+        if model_name is None:
+            from llm.config_manager import ModelConfig
+            # Resolve 'EMBEDDING' alias from models.yaml
+            self.model_name = ModelConfig().resolve_model_name("EMBEDDING")
+        else:
+            self.model_name = model_name
+        self.client = AsyncOpenAI(base_url=self.base_url, api_key="none")
 
     async def generate_embedding(self, text: str) -> List[float]:
         """
-        Generate an embedding vector for the input text using Ollama's nomic-embed-text model.
+        Generate an embedding vector for the input text using Llama.cpp server.
         """
-        url = f"{self.ollama_url}/api/embeddings"
-        payload = {"model": self.model_name, "prompt": text}
-        async with aiohttp.ClientSession() as session:
-            async with session.post(url, json=payload, timeout=30) as resp:
-                resp.raise_for_status()
-                data = await resp.json()
-                return data["embedding"]
+        try:
+            response = await self.client.embeddings.create(
+                input=text,
+                model=self.model_name
+            )
+            return response.data[0].embedding
+        except Exception as e:
+            print(f"Error generating embedding: {e}")
+            return []
+

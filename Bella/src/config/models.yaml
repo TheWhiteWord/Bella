@@ -1,22 +1,25 @@
 models:
 
   XXS:
-    name: qwen3:1B
+    name: Qwen3-0.6B-Q8_0
 
   XS:
-    name: qwen3:2B
+    name: Qwen3-0.6B-Q8_0
   
   S:
-    name: qwen3:4B
+    name: Qwen3-4B-Thinking-2507-Q8_0
 
   M:
-    name: qwen3:8B
+    name: Qwen3-4B-Thinking-2507-Q8_0
   
   L:
-    name: qwen3:14B
+    name: Llama-3.1-8B-Lexi-Uncensored_V2_Q8
   
   LEXI:
-    name: Lexi:latest
+    name: Llama-3.1-8B-Lexi-Uncensored_V2_Q8
+
+  EMBEDDING:
+    name: Qwen3-Embedding-0.6B-Q8_0
 
 # --- Memory System Configuration ---
 memory:

@@ -5,7 +5,7 @@ import re
 import numpy as np
 from typing import List
 import re
-from llm.ollama_client import generate
+from llm.llama_client import generate
 
 
 class MemoryClassifier:

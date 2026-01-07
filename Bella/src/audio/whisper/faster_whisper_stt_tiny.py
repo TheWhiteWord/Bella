@@ -20,9 +20,8 @@ MODEL_NAME = "/media/theww/AI/Code/AI/Bella/Bella/models/whisper/small"
 @lru_cache(maxsize=1)
 def get_whisper_model():
     """Get or initialize the Whisper model on CPU for maximum stability."""
-    # Use CPU for STT to avoid CUDA OOM conflicts with the TTS engine
-    # On high-end systems, Whisper small is extremely fast on CPU
-    device = "cpu"
+    # Use CUDA for faster STT
+    device = "cuda"
     compute_type = "int8"
     
     print(f"DEBUG: Initializing Whisper on {device} with {compute_type}")

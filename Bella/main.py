@@ -58,16 +58,10 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "src"
 
 from src.utility.audio_session_manager import AudioSessionManager
 from src.utility.buffered_recorder import BufferedRecorder, create_audio_stream
-from src.llm.chat_manager import generate_chat_response, generate_chat_response_with_tools
+from src.llm.chat_manager import generate_chat_response
 from src.audio.chatterbox_tts.chatterbox_tts import ChatterboxTTSWrapper
 from src.llm.config_manager import ModelConfig
-
-
-# Use new BellaMemory conversation adapter
-from src.bella_memory.memory_conversation_adapter import MemoryConversationAdapter
-
-# Import self/user awareness tools to ensure registration at startup
-from src.bella_memory.tools_self_user_awareness import set_bella_memory_instance, summarize_self_awareness
+from src.audio.whisper.faster_whisper_stt_tiny import get_whisper_model
 
 # Path to the search signal file used by web_search_mcp
 SEARCH_SIGNAL_PATH = os.path.join(tempfile.gettempdir(), "bella_search_status.json")
@@ -157,13 +151,12 @@ async def init_tts_engine(sink_name: Optional[str] = None) -> ChatterboxTTSWrapp
         print(f"Error initializing TTS engine: {e}")
         raise
 
-async def main_interaction_loop(model: str = None, sink_name: Optional[str] = None, use_memory: bool = True) -> None:
+async def main_interaction_loop(model: str = None, sink_name: Optional[str] = None) -> None:
     """Main loop for capturing speech, generating responses, and playing audio.
     
     Args:
         model (str, optional): Model nickname for Ollama. If None, uses default from config
         sink_name (str, optional): Name of PulseAudio sink to use for output
-        use_memory (bool): Whether to use the memory system
     """
     print("\nInitializing voice assistant components...")
     tts_engine = None
@@ -203,22 +196,20 @@ async def main_interaction_loop(model: str = None, sink_name: Optional[str] = No
                 print(f"\nFallback TTS initialization also failed: {second_e}")
                 raise
         
+        # Warm up Whisper STT
+        try:
+            print("\nWarming up Whisper STT model...")
+            # Run initialization in a thread to avoid blocking if it takes time
+            # though get_whisper_model is fast if cached, the first load takes time
+            # We just need to trigger the lru_cache
+            await asyncio.to_thread(get_whisper_model)
+            print("Whisper STT model warmed up.")
+        except Exception as e:
+            print(f"\nWarning: Whisper warm-up failed (will try again during first transcription): {e}")
+
         print(f"\nUsing model: {model}")
         
 
-
-        # Initialize memory system if enabled
-        memory_adapter = None
-        if use_memory:
-            memory_adapter = MemoryConversationAdapter()
-            set_bella_memory_instance(memory_adapter.bella_memory)
-            print("BellaMemory conversation adapter initialized and tools registered.")
-            # Generate self-awareness summary for system prompt
-            try:
-                self_awareness_summary = await summarize_self_awareness()
-                print("[System] Self-awareness summary generated for system prompt.")
-            except Exception as e:
-                print(f"[Warning] Failed to generate self-awareness summary: {e}")
 
         welcome_message = "Voice Assistant ready! Start speaking when ready."
         
@@ -285,60 +276,16 @@ async def main_interaction_loop(model: str = None, sink_name: Optional[str] = No
                 # Generate response using local Ollama model
                 print(f"\nThinking... (using {model})")
                 
-                # Add memory context to enhance response (if memory system enabled)
-                enhanced_context = ""
-                memory_context = {}
-                if memory_adapter and use_memory:
-                    try:
-                        # Pre-process input through memory system
-                        memory_context = await memory_adapter.pre_process_input(transcribed_text, formatted_history)
-                        
-                        if memory_context and memory_context.get("memory_context"):
-                            confidence = memory_context.get("confidence", "low")
-                            print(f"\nFound relevant memory (confidence: {confidence}).")
-                            enhanced_context = f"Based on my memory: {memory_context.get('memory_context')}"
-                            
-                            # Log memory source for debugging
-                            if "memory_source" in memory_context:
-                                print(f"Memory source: {memory_context['memory_source']}")
-                    except Exception as mem_err:
-                        print(f"\nWarning: Memory processing error: {mem_err}")
-
-                # Generate response with tool capabilities
-                if enhanced_context:
-                    # Add memory context as a system message
-                    sys_message = {"role": "system", "content": enhanced_context}
-                    tool_history = [sys_message] + formatted_history
-                else:
-                    tool_history = formatted_history
-                
-                # Try generating response with tools first
-                response, updated_history = await generate_chat_response_with_tools(
-                    transcribed_text,
-                    tool_history,
-                    model,
-                    timeout=15.0,
-                    verbose=False,
-                    self_awareness_summary=self_awareness_summary
+                # Simple generation without tools or memory
+                response = await generate_chat_response(
+                    user_input=transcribed_text,
+                    history_context="\n".join(conversation_history[-10:]), # Pass recent history string
+                    model=model,
+                    timeout=120.0
                 )
                 
                 print(f"Assistant: {response}")
                 
-                # Process for memory post-response (without changing spoken response)
-                if memory_adapter and use_memory:
-                    try:
-                        # Post-process response through memory system
-                        modified_response = await memory_adapter.post_process_response(
-                            transcribed_text, response
-                        )
-                        
-                        # Use the modified response if it's different (rare)
-                        if modified_response and modified_response != response:
-                            print("\nMemory system modified response.")
-                            response = modified_response
-                    except Exception as mem_err:
-                        print(f"\nWarning: Memory post-processing error: {mem_err}")
-
                 # Update conversation history
                 conversation_history.append(transcribed_text)  # User input
                 conversation_history.append(response)  # Assistant response
@@ -400,11 +347,6 @@ if __name__ == "__main__":
         help="Name of PulseAudio sink to use"
     )
     parser.add_argument(
-        "--disable-memory",
-        action="store_true",
-        help="Disable the autonomous memory system"
-    )
-    parser.add_argument(
         "--no-visualizer",
         action="store_true",
         help="Do not launch the Bella Voice Visualizer"
@@ -415,14 +357,23 @@ if __name__ == "__main__":
     # Launch the visualizer as a separate process unless disabled
     visualizer_proc = None
     if not args.no_visualizer:
+        print("Launching visualizer...")
         visualizer_path = os.path.join(os.path.dirname(__file__), "src", "ui", "bella_visualizer.py")
-        visualizer_proc = subprocess.Popen([sys.executable, visualizer_path])
+        # Redirect output to a log file for debugging
+        vis_log = open("visualizer.log", "w")
+        visualizer_proc = subprocess.Popen(
+            [sys.executable, visualizer_path],
+            stdout=vis_log,
+            stderr=subprocess.STDOUT
+        )
+        print(f"Visualizer launched with PID {visualizer_proc.pid}")
 
     try:
         if args.list_devices:
             list_audio_devices()
             sys.exit(0)
-        asyncio.run(main_interaction_loop(args.model, args.sink, not args.disable_memory))
+        
+        asyncio.run(main_interaction_loop(args.model, args.sink))
     except KeyboardInterrupt:
         print("\nStopped by user.")
     except Exception as e:

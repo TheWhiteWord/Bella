@@ -5,7 +5,7 @@ from bs4 import BeautifulSoup
 from duckduckgo_search import DDGS
 from trafilatura import fetch_url, extract
 from loguru import logger
-import ollama
+from llm.llama_client import generate
 from functools import lru_cache
 
 class SearchAgent:
@@ -14,17 +14,22 @@ class SearchAgent:
     def __init__(self, 
                  max_depth: int = 2, 
                  max_links_per_page: int = 3,
-                 model: str = "Gemma"):
+                 model: str = None):
         """
         Initialize search and summarization components.
         
         Args:
             max_depth: Maximum depth for recursive search (default: 2)
             max_links_per_page: Maximum links to follow per page (default: 3)
-            model: Ollama model name (default: "Gemma")
+            model: Model name (default: resolved from config 'S')
         """
         self.ddgs = DDGS()
-        self.model = model
+        if model is None:
+            from ..llm.config_manager import ModelConfig
+            # Use 'S' (Small/Standard) which maps to the Thinking model in models.yaml
+            self.model = ModelConfig().resolve_model_name("S")
+        else:
+            self.model = model
         self.max_depth = max_depth
         self.max_links_per_page = max_links_per_page
         self.visited_urls: Set[str] = set()
@@ -47,28 +52,14 @@ class SearchAgent:
                 f"{text}"
             )
             
-            # Run ollama.chat in a thread pool since it's synchronous
-            loop = asyncio.get_event_loop()
-            response = await loop.run_in_executor(
-                None,
-                lambda: ollama.chat(
-                    model=self.model,
-                    messages=[{
-                        'role': 'system',
-                        'content': 'You are a precise summarizer. Provide direct summaries without phrases like "Here is a summary" or "The text discusses". Focus on key facts and insights.',
-                    }, {
-                        'role': 'user',
-                        'content': prompt
-                    }],
-                    stream=False,
-                    options={
-                        "temperature": 0.3,
-                        "top_p": 0.8
-                    }
-                )
+            # Use the shared generate function
+            response = await generate(
+                prompt=prompt,
+                model=self.model,
+                system_prompt='You are a precise summarizer. Provide direct summaries without phrases like "Here is a summary" or "The text discusses". Focus on key facts and insights.'
             )
             
-            return response['message']['content'].strip()
+            return response.strip()
             
         except Exception as e:
             logger.error(f"Summarization failed: {e}")

@@ -60,29 +60,30 @@ class ModelConfig:
         return self.config['models']
     
     def get_default_model(self) -> str:
-        """Get the default model name from .env (QWEN_L) or fallback to qwen3:14B.
+        """Get the default model name (LEXI) from config.
         Returns:
             str: Name of the default model
         """
-        import os
-        return os.getenv("LEXI", "Lexi:latest")
+        return self.resolve_model_name("LEXI")
     
     def resolve_model_name(self, key: str = "XS") -> str:
         """Resolve the actual model name for a given logical key/size.
-        Checks .env for override, then YAML config, then fallback.
+        Strictly uses models.yaml configuration.
         """
         key = key.upper()
-        # 1. Check .env for override
-        env_var = f"QWEN_{key}" if key in ["XXS", "XS", "S", "M", "L"] else key
-        model_name = os.getenv(env_var)
-        if model_name:
-            return model_name
-        # 2. Check YAML config
+        
+        # Check YAML config
         model_info = self.config['models'].get(key)
         if model_info and 'name' in model_info:
             return model_info['name']
-        # 3. Fallback to Lexi or a default
-        return os.getenv("LEXI", "Lexi:latest")
+            
+        print(f"Warning: Model key '{key}' not found in configuration. Defaulting to Lexi if available.")
+        # Fallback to LEXI if possible, otherwise return the key itself (might be a direct name)
+        lexi_info = self.config['models'].get("LEXI")
+        if lexi_info:
+            return lexi_info['name']
+            
+        return key
 
 class PromptConfig:
     def __init__(self, config_path: str = None):

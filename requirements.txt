@@ -26,3 +26,4 @@ chromadb           # Vector database for embeddings
 matplotlib           # For visualization of embeddings
 aiofiles>=23.2.1           # Async file operations
 aiohttp>=3.9.5            # Async HTTP client
+openai>=1.0.0              # Llama.cpp client compatibility
